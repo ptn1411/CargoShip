@@ -1,0 +1,255 @@
+import { useState, useEffect } from "react";
+import { Search, RefreshCw, X, Server, ChevronDown } from "lucide-react";
+import { cn } from "../../lib/utils";
+import { useAppStore } from "../../store";
+import { parseError } from "../../lib/errorHandler";
+import { Breadcrumb } from "./Breadcrumb";
+import { FileTree } from "./FileTree";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+
+export function FileBrowser() {
+  const servers = useAppStore((state) => state.servers);
+  const currentServerId = useAppStore((state) => state.currentServerId);
+  const currentPath = useAppStore((state) => state.currentPath);
+  const fileEntries = useAppStore((state) => state.fileEntries);
+  const breadcrumbs = useAppStore((state) => state.breadcrumbs);
+  const isLoadingFiles = useAppStore((state) => state.isLoadingFiles);
+  const fileError = useAppStore((state) => state.fileError);
+  const searchPattern = useAppStore((state) => state.searchPattern);
+  const serverStatus = useAppStore((state) => state.serverStatus);
+
+  const navigateToPath = useAppStore((state) => state.navigateToPath);
+  const refreshDirectory = useAppStore((state) => state.refreshDirectory);
+  const searchFiles = useAppStore((state) => state.searchFiles);
+  const clearSearch = useAppStore((state) => state.clearSearch);
+  const setFileBrowserServer = useAppStore((state) => state.setFileBrowserServer);
+  const showError = useAppStore((state) => state.showError);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const currentServer = servers.find((s) => s.id === currentServerId);
+  const onlineServers = servers.filter((s) => serverStatus[s.id] === "online");
+
+  // Sync search input with store
+  useEffect(() => {
+    setSearchInput(searchPattern);
+  }, [searchPattern]);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshDirectory();
+    } catch (error) {
+      const parsed = parseError(error);
+      showError(parsed.title, parsed.message, {
+        label: "Retry",
+        onClick: handleRefresh,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchInput.trim()) {
+      try {
+        await searchFiles(searchInput.trim());
+      } catch (error) {
+        const parsed = parseError(error);
+        showError(parsed.title, parsed.message);
+      }
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput("");
+    clearSearch();
+  };
+
+  const handleNavigate = async (path: string) => {
+    if (currentServerId) {
+      try {
+        await navigateToPath(currentServerId, path);
+      } catch (error) {
+        const parsed = parseError(error);
+        showError(parsed.title, parsed.message);
+      }
+    }
+  };
+
+  const handleServerSelect = async (serverId: string) => {
+    try {
+      setFileBrowserServer(serverId);
+    } catch (error) {
+      const parsed = parseError(error);
+      showError(parsed.title, parsed.message);
+    }
+  };
+
+  // No server selected state
+  if (!currentServerId) {
+    return (
+      <div className="h-full flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">File Browser</h2>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center text-center">
+          <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
+            <Server className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-medium mb-2">Select a server</h3>
+          <p className="text-muted-foreground mb-4">
+            Choose a connected server to browse its files
+          </p>
+
+          {onlineServers.length > 0 ? (
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger asChild>
+                <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90">
+                  Select Server
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  className="min-w-[200px] bg-popover border border-border rounded-md p-1 shadow-md z-50"
+                  sideOffset={5}
+                >
+                  {onlineServers.map((server) => (
+                    <DropdownMenu.Item
+                      key={server.id}
+                      className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer outline-none hover:bg-accent"
+                      onClick={() => handleServerSelect(server.id)}
+                    >
+                      <Server className="w-4 h-4" />
+                      {server.name}
+                    </DropdownMenu.Item>
+                  ))}
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No connected servers. Test a connection first.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold">File Browser</h2>
+          
+          {/* Server Selector */}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-sm hover:bg-accent">
+                <Server className="w-4 h-4" />
+                {currentServer?.name || "Select Server"}
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="min-w-[200px] bg-popover border border-border rounded-md p-1 shadow-md z-50"
+                sideOffset={5}
+              >
+                {servers.map((server) => (
+                  <DropdownMenu.Item
+                    key={server.id}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer outline-none hover:bg-accent",
+                      server.id === currentServerId && "bg-accent"
+                    )}
+                    onClick={() => handleServerSelect(server.id)}
+                  >
+                    <Server className="w-4 h-4" />
+                    {server.name}
+                    {serverStatus[server.id] === "online" && (
+                      <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+                    )}
+                  </DropdownMenu.Item>
+                ))}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <form onSubmit={handleSearch} className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search files..."
+              className="w-48 pl-9 pr-8 py-1.5 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-secondary"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </form>
+
+          {/* Refresh */}
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-2 rounded-md border border-border hover:bg-accent disabled:opacity-50"
+            title="Refresh"
+          >
+            <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+          </button>
+        </div>
+      </div>
+
+      {/* Breadcrumb Navigation */}
+      <div className="mb-3 pb-3 border-b border-border">
+        <Breadcrumb breadcrumbs={breadcrumbs} onNavigate={handleNavigate} />
+      </div>
+
+      {/* Search indicator */}
+      {searchPattern && (
+        <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <span>
+            Showing results for "{searchPattern}" in {currentPath}
+          </span>
+          <button
+            onClick={handleClearSearch}
+            className="text-primary hover:underline"
+          >
+            Clear search
+          </button>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {fileError && (
+        <div className="mb-4 p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+          {fileError}
+        </div>
+      )}
+
+      {/* File Tree */}
+      <FileTree
+        entries={fileEntries}
+        isLoading={isLoadingFiles}
+        onNavigate={handleNavigate}
+      />
+    </div>
+  );
+}
