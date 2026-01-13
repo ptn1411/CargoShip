@@ -1843,7 +1843,7 @@ EOF"#.to_string(),
                 Variable {
                     name: "redis_password".to_string(),
                     description: "Redis password (leave empty for no auth)".to_string(),
-                    default_value: None,
+                    default_value: Some("".to_string()),
                     required: false,
                     var_type: VariableType::Secret,
                 },

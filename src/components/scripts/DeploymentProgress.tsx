@@ -39,6 +39,7 @@ interface DeploymentProgressProps {
 
 interface LiveLog {
   stepId: string;
+  stepName: string;
   serverId: string;
   output: string;
   stderr: string;
@@ -84,6 +85,7 @@ export function DeploymentProgress({
         const key = `${log.step_id}-${log.server_id}`;
         initialLogs[key] = {
           stepId: log.step_id,
+          stepName: log.step_name,
           serverId: log.server_id,
           output: log.output,
           stderr: log.stderr || "",
@@ -112,6 +114,7 @@ export function DeploymentProgress({
             ...prev,
             [key]: {
               stepId: payload.step_id,
+              stepName: payload.step_name,
               serverId: payload.server_id,
               output: "",
               stderr: "",
@@ -414,7 +417,7 @@ function ServerLogs({
         {logs.map((log) => (
           <StepLog
             key={log.key}
-            stepId={log.stepId}
+            stepName={log.stepName}
             output={log.output}
             stderr={log.stderr}
             status={log.status}
@@ -430,7 +433,7 @@ function ServerLogs({
 }
 
 interface StepLogProps {
-  stepId: string;
+  stepName: string;
   output: string;
   stderr: string;
   status: StepStatus;
@@ -441,7 +444,7 @@ interface StepLogProps {
 }
 
 function StepLog({
-  stepId,
+  stepName,
   output,
   stderr,
   status,
@@ -473,7 +476,7 @@ function StepLog({
             <ChevronRight className="w-4 h-4 text-muted-foreground" />
           )}
           {getStatusIcon(status)}
-          <span className="flex-1 font-medium text-sm">{stepId}</span>
+          <span className="flex-1 font-medium text-sm">{stepName}</span>
           {hasStderr && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
               stderr

@@ -164,7 +164,8 @@ impl SshClient {
         timeout_secs: Option<u64>
     ) -> Result<CommandOutput> {
         let cancel_flag = Arc::new(AtomicBool::new(false));
-        self.execute_command_with_cancel(server, command, timeout_secs, cancel_flag)
+        // execute_command uses timeout (for conditions, quick checks)
+        self.execute_command_internal(server, command, timeout_secs, cancel_flag, true)
     }
 
     pub fn execute_command_with_cancel(
@@ -173,6 +174,19 @@ impl SshClient {
         command: &str,
         timeout_secs: Option<u64>,
         cancel_flag: Arc<AtomicBool>,
+    ) -> Result<CommandOutput> {
+        // Use timeout if provided, otherwise wait indefinitely
+        // For script steps, timeout is optional safety net
+        self.execute_command_internal(server, command, timeout_secs, cancel_flag, timeout_secs.is_some())
+    }
+
+    fn execute_command_internal(
+        &self,
+        server: &Server,
+        command: &str,
+        timeout_secs: Option<u64>,
+        cancel_flag: Arc<AtomicBool>,
+        use_timeout: bool,
     ) -> Result<CommandOutput> {
         let start = Instant::now();
         let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS));
@@ -193,13 +207,15 @@ impl SshClient {
         let mut buf = [0u8; 4096];
 
         loop {
+            // Check for user cancellation
             if cancel_flag.load(Ordering::Relaxed) {
                 channel.send_eof().ok();
                 channel.close().ok();
                 return Err(AppError::CommandFailed("Command cancelled by user".to_string()));
             }
 
-            if start.elapsed() > timeout {
+            // Check timeout only if use_timeout is true
+            if use_timeout && start.elapsed() > timeout {
                 channel.send_eof().ok();
                 channel.close().ok();
                 return Err(AppError::CommandFailed(format!(

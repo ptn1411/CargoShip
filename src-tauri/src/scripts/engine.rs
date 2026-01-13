@@ -580,7 +580,7 @@ async fn execute_steps_on_server_static(
             let condition_result = ssh_client.execute_command(
                 server,
                 &resolved_condition,
-                Some(30),
+                Some(10), // 10 second timeout for conditions
             );
 
             match condition_result {
@@ -787,14 +787,13 @@ async fn execute_single_step(
     variable_resolver: Arc<VariableResolver>,
 ) -> Result<StepResult> {
     let start = Instant::now();
-    let mut combined_stdout = String::new();
-    let mut combined_stderr = String::new();
-    let mut final_exit_code = 0;
 
     // Get sudo password if provided
     let sudo_password = variables.get("__sudo_password__").cloned();
 
-    // Build the full command with working directory and environment
+    // Build all commands into a single script to avoid multiple SSH connections
+    let mut script_commands = Vec::new();
+    
     for command in &step.commands {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(AppError::CommandFailed("Command cancelled".to_string()));
@@ -842,55 +841,62 @@ async fn execute_single_step(
 
         // Wrap sudo commands with password if provided
         let full_command = wrap_sudo_with_password(&full_command, &sudo_password);
-
-        // Execute command with timeout (Requirements: 5.7)
-        let timeout_secs = step.timeout.or(Some(300)); // Default 5 minute timeout
         
-        let result = ssh_client.execute_command_with_cancel(
-            server,
-            &full_command,
-            timeout_secs,
-            cancel_flag.clone(),
-        );
-
-        match result {
-            Ok(output) => {
-                combined_stdout.push_str(&output.stdout);
-                combined_stderr.push_str(&output.stderr);
-                
-                if output.exit_code != 0 {
-                    final_exit_code = output.exit_code;
-                    break; // Stop executing commands in this step
-                }
-            }
-            Err(e) => {
-                combined_stderr.push_str(&format!("[error] {}\n", e));
-                final_exit_code = -1;
-                break;
-            }
-        }
+        script_commands.push(full_command);
     }
 
+    // Join all commands with && to stop on first failure
+    let combined_script = script_commands.join(" && ");
+    
+    // Execute all commands in a single SSH connection
+    let timeout_secs = step.timeout.or(Some(300)); // Default 5 minute timeout
+    
+    eprintln!("[DEBUG] Executing step '{}' with {} commands (timeout: {:?}s)", 
+              step.name, script_commands.len(), timeout_secs);
+    
+    let result = ssh_client.execute_command_with_cancel(
+        server,
+        &combined_script,
+        timeout_secs,
+        cancel_flag.clone(),
+    );
+    
     let duration = start.elapsed();
 
-    Ok(StepResult {
-        exit_code: final_exit_code,
-        stdout: combined_stdout,
-        stderr: combined_stderr,
-        duration_ms: duration.as_millis() as u64,
-    })
+    match result {
+        Ok(output) => {
+            eprintln!("[DEBUG] Step '{}' completed with exit code: {}", step.name, output.exit_code);
+            Ok(StepResult {
+                exit_code: output.exit_code,
+                stdout: output.stdout,
+                stderr: output.stderr,
+                duration_ms: duration.as_millis() as u64,
+            })
+        }
+        Err(e) => {
+            eprintln!("[DEBUG] Step '{}' failed: {}", step.name, e);
+            Ok(StepResult {
+                exit_code: -1,
+                stdout: String::new(),
+                stderr: format!("[error] {}", e),
+                duration_ms: duration.as_millis() as u64,
+            })
+        }
+    }
 }
 
 /// Wrap sudo commands with password using stdin
-/// This converts "sudo cmd" to "echo 'password' | sudo -S cmd"
+/// This converts "sudo cmd" to "echo 'password' | sudo -S -p '' cmd"
+/// -S reads password from stdin, -p '' suppresses the password prompt
 fn wrap_sudo_with_password(command: &str, sudo_password: &Option<String>) -> String {
     if let Some(ref password) = sudo_password {
         // Check if command contains sudo
         if command.contains("sudo ") {
             // Escape password for shell
             let escaped_password = shell_escape(password);
-            // Replace "sudo " with "echo 'password' | sudo -S "
-            command.replace("sudo ", &format!("echo {} | sudo -S ", escaped_password))
+            // Replace "sudo " with "echo 'password' | sudo -S -p '' "
+            // -p '' suppresses the "[sudo] password for user:" prompt
+            command.replace("sudo ", &format!("echo {} | sudo -S -p '' ", escaped_password))
         } else {
             command.to_string()
         }
