@@ -34,6 +34,9 @@ pub enum AppError {
 
     #[error("Connection pool exhausted: maximum {0} connections allowed")]
     ConnectionPoolExhausted(usize),
+
+    #[error("SUDO_PASSWORD_REQUIRED")]
+    SudoPasswordRequired,
 }
 
 impl From<sqlx::Error> for AppError {

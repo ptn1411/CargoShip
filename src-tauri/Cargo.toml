@@ -48,3 +48,15 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+# YAML support for deployment scripts
+serde_yaml = "0.9"
+
+# Variable interpolation
+regex = "1"
+whoami = "1"

@@ -37,6 +37,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [environment, setEnvironment] = useState<"dev" | "staging" | "prod">("dev");
   const [tags, setTags] = useState("");
+  const [useSudo, setUseSudo] = useState(false);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
         setAuthMethod(server.auth_method);
         setEnvironment(server.environment);
         setTags(server.tags.join(", "));
+        setUseSudo(server.use_sudo || false);
         setCredential("");
         setKeyPassphrase("");
       } else {
@@ -63,6 +65,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
         setAuthMethod("password");
         setEnvironment("dev");
         setTags("");
+        setUseSudo(false);
         setCredential("");
         setKeyPassphrase("");
       }
@@ -139,6 +142,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           auth_method: authMethod,
           environment,
           tags: parsedTags,
+          use_sudo: useSudo,
         };
         await onSubmit(input, credential.trim() || undefined, keyPassphrase || undefined);
       } else {
@@ -150,6 +154,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           auth_method: authMethod,
           environment,
           tags: parsedTags,
+          use_sudo: useSudo,
         };
         await onSubmit(input, credential.trim(), keyPassphrase || undefined);
       }
@@ -364,6 +369,22 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                 className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="web, database, api (comma separated)"
               />
+            </div>
+
+            {/* Use Sudo */}
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useSudo}
+                  onChange={(e) => setUseSudo(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                <span className="text-sm font-medium">Use sudo for file operations</span>
+              </label>
+              <span className="text-xs text-muted-foreground">
+                (requires passwordless sudo or NOPASSWD)
+              </span>
             </div>
 
             {/* Duplicate Warning */}

@@ -2,3 +2,8 @@ export { FileBrowser } from "./FileBrowser";
 export { Breadcrumb } from "./Breadcrumb";
 export { FileTree } from "./FileTree";
 export { FileEntryRow } from "./FileEntryRow";
+export { FileContextMenu } from "./FileContextMenu";
+export { InputDialog } from "./InputDialog";
+export { ConfirmDialog } from "./ConfirmDialog";
+export { UploadDialog } from "./UploadDialog";
+export { SudoPasswordDialog } from "./SudoPasswordDialog";

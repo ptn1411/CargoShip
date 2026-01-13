@@ -1,8 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar, MainContent, StatusBar } from "./components/layout";
 import { ServerList } from "./components/servers";
 import { FileBrowser } from "./components/files";
 import { TerminalContainer } from "./components/terminal";
+import { FileEditor, EditorModal } from "./components/editor";
 import { ToastContainer } from "./components/ui";
 import { useAppStore, setupEventListeners } from "./store";
 
@@ -14,13 +15,18 @@ function App() {
   const serverStatus = useAppStore((state) => state.serverStatus);
   const toasts = useAppStore((state) => state.toasts);
   const removeToast = useAppStore((state) => state.removeToast);
+  const loadEditorSettings = useAppStore((state) => state.loadEditorSettings);
+  const openFiles = useAppStore((state) => state.openFiles);
+  
+  // Editor modal state
+  const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
 
   // Count online connections
   const connectionCount = Object.values(serverStatus).filter(
     (status) => status === "online"
   ).length;
 
-  // Setup event listeners on mount
+  // Setup event listeners and load initial data on mount
   useEffect(() => {
     let cleanup: (() => void) | null = null;
 
@@ -28,12 +34,15 @@ function App() {
       cleanup = cleanupFn;
     });
 
+    // Load editor settings on app start
+    loadEditorSettings();
+
     return () => {
       if (cleanup) {
         cleanup();
       }
     };
-  }, []);
+  }, [loadEditorSettings]);
 
   // Detect system theme preference
   useEffect(() => {
@@ -72,7 +81,19 @@ function App() {
       case "servers":
         return <ServerList />;
       case "files":
-        return <FileBrowser />;
+        // Show FileBrowser with Open button to open editor modal
+        return (
+          <div className="h-full flex gap-4">
+            <div className={openFiles.length > 0 ? "w-1/3 min-w-[300px] max-w-[400px]" : "w-full"}>
+              <FileBrowser onOpenFileFullscreen={() => setIsEditorModalOpen(true)} />
+            </div>
+            {openFiles.length > 0 && (
+              <div className="flex-1 min-w-0">
+                <FileEditor />
+              </div>
+            )}
+          </div>
+        );
       case "terminal":
         return <TerminalContainer />;
       default:
@@ -91,6 +112,12 @@ function App() {
         activeTerminals={terminalSessions.length}
       />
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      
+      {/* Editor Modal - Fullscreen */}
+      <EditorModal 
+        isOpen={isEditorModalOpen} 
+        onClose={() => setIsEditorModalOpen(false)} 
+      />
     </div>
   );
 }

@@ -101,8 +101,8 @@ impl ServerManager {
 
         sqlx::query(
             r#"
-            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, use_sudo, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -113,6 +113,7 @@ impl ServerManager {
         .bind(input.auth_method.to_string())
         .bind(&tags_json)
         .bind(input.environment.to_string())
+        .bind(input.use_sudo)
         .bind(now.to_rfc3339())
         .bind(now.to_rfc3339())
         .execute(&self.db)
@@ -127,6 +128,7 @@ impl ServerManager {
             auth_method: input.auth_method,
             tags: input.tags,
             environment: input.environment,
+            use_sudo: input.use_sudo,
             created_at: now,
             updated_at: now,
             last_connected: None,
@@ -143,8 +145,8 @@ impl ServerManager {
 
         sqlx::query(
             r#"
-            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, use_sudo, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -155,6 +157,7 @@ impl ServerManager {
         .bind(input.auth_method.to_string())
         .bind(&tags_json)
         .bind(input.environment.to_string())
+        .bind(input.use_sudo)
         .bind(now.to_rfc3339())
         .bind(now.to_rfc3339())
         .execute(&self.db)
@@ -169,6 +172,7 @@ impl ServerManager {
             auth_method: input.auth_method,
             tags: input.tags,
             environment: input.environment,
+            use_sudo: input.use_sudo,
             created_at: now,
             updated_at: now,
             last_connected: None,
@@ -207,6 +211,7 @@ impl ServerManager {
         let auth_method = input.auth_method.unwrap_or(existing.auth_method);
         let tags = input.tags.unwrap_or(existing.tags);
         let environment = input.environment.unwrap_or(existing.environment);
+        let use_sudo = input.use_sudo.unwrap_or(existing.use_sudo);
 
         // Validate the updated values
         Self::validate_update_input(input.host.as_deref(), input.port)?;
@@ -239,7 +244,7 @@ impl ServerManager {
         sqlx::query(
             r#"
             UPDATE servers 
-            SET name = ?, host = ?, port = ?, username = ?, auth_method = ?, tags = ?, environment = ?, updated_at = ?
+            SET name = ?, host = ?, port = ?, username = ?, auth_method = ?, tags = ?, environment = ?, use_sudo = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -250,6 +255,7 @@ impl ServerManager {
         .bind(auth_method.to_string())
         .bind(&tags_json)
         .bind(environment.to_string())
+        .bind(use_sudo)
         .bind(now.to_rfc3339())
         .bind(id)
         .execute(&self.db)
@@ -264,6 +270,7 @@ impl ServerManager {
             auth_method,
             tags,
             environment,
+            use_sudo,
             created_at: existing.created_at,
             updated_at: now,
             last_connected: existing.last_connected,
@@ -308,6 +315,8 @@ struct ServerRow {
     auth_method: String,
     tags: String,
     environment: String,
+    #[sqlx(default)]
+    use_sudo: bool,
     created_at: String,
     updated_at: String,
     last_connected: Option<String>,
@@ -324,6 +333,7 @@ impl ServerRow {
             auth_method: self.auth_method.parse().unwrap_or(AuthMethod::Password),
             tags: serde_json::from_str(&self.tags).unwrap_or_default(),
             environment: self.environment.parse().unwrap_or(Environment::Dev),
+            use_sudo: self.use_sudo,
             created_at: chrono::DateTime::parse_from_rfc3339(&self.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now()),

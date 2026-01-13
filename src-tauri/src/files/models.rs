@@ -11,6 +11,43 @@ pub struct FileEntry {
     pub modified_at: DateTime<Utc>,
 }
 
+/// File content returned when downloading a file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileContent {
+    pub path: String,
+    pub content: String,
+    pub size: u64,
+    pub modified_at: i64,
+    pub permissions: String,
+    pub encoding: String,
+}
+
+/// Warning for large files
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LargeFileWarning {
+    pub path: String,
+    pub size: u64,
+    pub threshold: u64,
+}
+
+/// Upload progress tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadProgress {
+    pub file_name: String,
+    pub bytes_uploaded: u64,
+    pub total_bytes: u64,
+    pub status: UploadStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum UploadStatus {
+    Pending,
+    Uploading,
+    Completed,
+    Failed(String),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileType {

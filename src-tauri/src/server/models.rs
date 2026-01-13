@@ -11,6 +11,8 @@ pub struct Server {
     pub auth_method: AuthMethod,
     pub tags: Vec<String>,
     pub environment: Environment,
+    #[serde(default)]
+    pub use_sudo: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_connected: Option<DateTime<Utc>>,
@@ -85,6 +87,8 @@ pub struct CreateServerInput {
     #[serde(default)]
     pub tags: Vec<String>,
     pub environment: Environment,
+    #[serde(default)]
+    pub use_sudo: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -96,4 +100,5 @@ pub struct UpdateServerInput {
     pub auth_method: Option<AuthMethod>,
     pub tags: Option<Vec<String>>,
     pub environment: Option<Environment>,
+    pub use_sudo: Option<bool>,
 }
