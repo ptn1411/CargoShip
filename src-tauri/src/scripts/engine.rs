@@ -651,7 +651,8 @@ async fn execute_steps_on_server_static(
                 // Log error
                 let error_result = StepResult {
                     exit_code: -1,
-                    output: e.to_string(),
+                    stdout: String::new(),
+                    stderr: e.to_string(),
                     duration_ms: 0,
                 };
                 deployment_logger.log_step_complete(
@@ -755,7 +756,8 @@ async fn execute_rollback_steps_static(
             Err(e) => {
                 let error_result = StepResult {
                     exit_code: -1,
-                    output: e.to_string(),
+                    stdout: String::new(),
+                    stderr: e.to_string(),
                     duration_ms: 0,
                 };
                 deployment_logger.log_step_complete(
@@ -785,7 +787,8 @@ async fn execute_single_step(
     variable_resolver: Arc<VariableResolver>,
 ) -> Result<StepResult> {
     let start = Instant::now();
-    let mut combined_output = String::new();
+    let mut combined_stdout = String::new();
+    let mut combined_stderr = String::new();
     let mut final_exit_code = 0;
 
     // Get sudo password if provided
@@ -852,11 +855,8 @@ async fn execute_single_step(
 
         match result {
             Ok(output) => {
-                combined_output.push_str(&output.stdout);
-                if !output.stderr.is_empty() {
-                    combined_output.push_str("\n[stderr]\n");
-                    combined_output.push_str(&output.stderr);
-                }
+                combined_stdout.push_str(&output.stdout);
+                combined_stderr.push_str(&output.stderr);
                 
                 if output.exit_code != 0 {
                     final_exit_code = output.exit_code;
@@ -864,7 +864,7 @@ async fn execute_single_step(
                 }
             }
             Err(e) => {
-                combined_output.push_str(&format!("\n[error] {}\n", e));
+                combined_stderr.push_str(&format!("[error] {}\n", e));
                 final_exit_code = -1;
                 break;
             }
@@ -875,7 +875,8 @@ async fn execute_single_step(
 
     Ok(StepResult {
         exit_code: final_exit_code,
-        output: combined_output,
+        stdout: combined_stdout,
+        stderr: combined_stderr,
         duration_ms: duration.as_millis() as u64,
     })
 }

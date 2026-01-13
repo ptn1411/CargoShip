@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   X,
   CheckCircle,
@@ -18,7 +18,6 @@ import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import {
   Deployment,
-  DeploymentLog,
   DeploymentStatus,
   StepStatus,
   deploymentEventApi,
@@ -42,6 +41,7 @@ interface LiveLog {
   stepId: string;
   serverId: string;
   output: string;
+  stderr: string;
   status: StepStatus;
   exitCode: number | null;
 }
@@ -59,7 +59,6 @@ export function DeploymentProgress({
   onOpenChange,
 }: DeploymentProgressProps) {
   const cancelDeployment = useAppStore((state) => state.cancelDeployment);
-  const loadDeploymentLogs = useAppStore((state) => state.loadDeploymentLogs);
   const showError = useAppStore((state) => state.showError);
   const showWarning = useAppStore((state) => state.showWarning);
 
@@ -87,6 +86,7 @@ export function DeploymentProgress({
           stepId: log.step_id,
           serverId: log.server_id,
           output: log.output,
+          stderr: log.stderr || "",
           status: log.status,
           exitCode: log.exit_code,
         };
@@ -114,6 +114,7 @@ export function DeploymentProgress({
               stepId: payload.step_id,
               serverId: payload.server_id,
               output: "",
+              stderr: "",
               status: "running",
               exitCode: null,
             },
@@ -351,7 +352,6 @@ export function DeploymentProgress({
                 {Object.entries(logsByServer).map(([serverId, logs]) => (
                   <ServerLogs
                     key={serverId}
-                    serverId={serverId}
                     serverName={
                       deployment.logs.find((l) => l.server_id === serverId)
                         ?.server_name || serverId
@@ -387,7 +387,6 @@ export function DeploymentProgress({
 // ============================================================================
 
 interface ServerLogsProps {
-  serverId: string;
   serverName: string;
   logs: (LiveLog & { key: string })[];
   expandedSteps: Set<string>;
@@ -396,7 +395,6 @@ interface ServerLogsProps {
 }
 
 function ServerLogs({
-  serverId,
   serverName,
   logs,
   expandedSteps,
@@ -416,9 +414,9 @@ function ServerLogs({
         {logs.map((log) => (
           <StepLog
             key={log.key}
-            stepKey={log.key}
             stepId={log.stepId}
             output={log.output}
+            stderr={log.stderr}
             status={log.status}
             exitCode={log.exitCode}
             isExpanded={expandedSteps.has(log.key)}
@@ -432,9 +430,9 @@ function ServerLogs({
 }
 
 interface StepLogProps {
-  stepKey: string;
   stepId: string;
   output: string;
+  stderr: string;
   status: StepStatus;
   exitCode: number | null;
   isExpanded: boolean;
@@ -443,9 +441,9 @@ interface StepLogProps {
 }
 
 function StepLog({
-  stepKey,
   stepId,
   output,
+  stderr,
   status,
   exitCode,
   isExpanded,
@@ -453,13 +451,17 @@ function StepLog({
   getStatusIcon,
 }: StepLogProps) {
   const logRef = useRef<HTMLPreElement>(null);
+  const [activeTab, setActiveTab] = useState<"stdout" | "stderr">("stdout");
 
   // Auto-scroll log content when new output arrives
   useEffect(() => {
     if (isExpanded && logRef.current && status === "running") {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [output, isExpanded, status]);
+  }, [output, stderr, isExpanded, status]);
+
+  const hasStdout = output && output.trim().length > 0;
+  const hasStderr = stderr && stderr.trim().length > 0;
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={onToggle}>
@@ -472,6 +474,11 @@ function StepLog({
           )}
           {getStatusIcon(status)}
           <span className="flex-1 font-medium text-sm">{stepId}</span>
+          {hasStderr && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+              stderr
+            </span>
+          )}
           {exitCode !== null && (
             <span
               className={cn(
@@ -489,17 +496,52 @@ function StepLog({
 
       <Collapsible.Content>
         <div className="px-4 pb-3">
+          {/* Tabs for stdout/stderr */}
+          <div className="flex items-center gap-1 mb-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setActiveTab("stdout"); }}
+              className={cn(
+                "px-3 py-1 text-xs rounded-t-md transition-colors",
+                activeTab === "stdout"
+                  ? "bg-zinc-900 text-zinc-100"
+                  : "bg-zinc-800/50 text-zinc-400 hover:text-zinc-200"
+              )}
+            >
+              stdout {hasStdout && <span className="ml-1 text-green-400">●</span>}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setActiveTab("stderr"); }}
+              className={cn(
+                "px-3 py-1 text-xs rounded-t-md transition-colors",
+                activeTab === "stderr"
+                  ? "bg-zinc-900 text-zinc-100"
+                  : "bg-zinc-800/50 text-zinc-400 hover:text-zinc-200"
+              )}
+            >
+              stderr {hasStderr && <span className="ml-1 text-red-400">●</span>}
+            </button>
+          </div>
+
           <pre
             ref={logRef}
             className={cn(
-              "p-3 rounded-md bg-zinc-900 text-zinc-100 text-xs font-mono overflow-auto max-h-64",
-              "whitespace-pre-wrap break-all"
+              "p-3 rounded-md rounded-tl-none bg-zinc-900 text-xs font-mono overflow-auto max-h-64",
+              "whitespace-pre-wrap break-all",
+              activeTab === "stderr" ? "text-red-300" : "text-zinc-100"
             )}
           >
-            {output || (
-              <span className="text-zinc-500 italic">
-                {status === "running" ? "Waiting for output..." : "No output"}
-              </span>
+            {activeTab === "stdout" ? (
+              hasStdout ? output : (
+                <span className="text-zinc-500 italic">
+                  {status === "running" ? "Waiting for output..." : "No stdout output"}
+                </span>
+              )
+            ) : (
+              hasStderr ? stderr : (
+                <span className="text-zinc-500 italic">
+                  {status === "running" ? "Waiting for stderr..." : "No stderr output"}
+                </span>
+              )
             )}
           </pre>
         </div>

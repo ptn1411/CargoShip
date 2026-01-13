@@ -394,7 +394,10 @@ export interface DeploymentLog {
   step_name: string;
   server_id: string;
   server_name: string;
+  /** Standard output from the command */
   output: string;
+  /** Standard error output from the command */
+  stderr: string;
   exit_code: number | null;
   started_at: string;
   completed_at: string | null;

@@ -139,7 +139,10 @@ pub struct DeploymentLog {
     pub step_name: String,
     pub server_id: String,
     pub server_name: String,
+    /// Standard output from the command
     pub output: String,
+    /// Standard error output from the command
+    pub stderr: String,
     pub exit_code: Option<i32>,
     pub started_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -164,6 +167,7 @@ impl DeploymentLog {
             server_id,
             server_name,
             output: String::new(),
+            stderr: String::new(),
             exit_code: None,
             started_at: Utc::now(),
             completed_at: None,
@@ -177,7 +181,10 @@ impl DeploymentLog {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepResult {
     pub exit_code: i32,
-    pub output: String,
+    /// Standard output from the command
+    pub stdout: String,
+    /// Standard error output from the command
+    pub stderr: String,
     pub duration_ms: u64,
 }
 

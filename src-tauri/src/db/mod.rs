@@ -123,6 +123,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
             server_id TEXT NOT NULL,
             server_name TEXT NOT NULL,
             output TEXT,
+            stderr TEXT,
             exit_code INTEGER,
             started_at TEXT NOT NULL,
             completed_at TEXT,
@@ -135,6 +136,11 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     .execute(pool)
     .await
     .map_err(|e| AppError::DatabaseError(format!("Failed to create deployment_logs table: {}", e)))?;
+
+    // Migration: Add stderr column if it doesn't exist
+    let _ = sqlx::query("ALTER TABLE deployment_logs ADD COLUMN stderr TEXT DEFAULT ''")
+        .execute(pool)
+        .await;
 
     // Create indexes for deployments table
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_deployments_script ON deployments(script_id)")

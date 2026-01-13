@@ -172,6 +172,21 @@ impl ScriptManager {
     /// Delete a deployment script
     /// Requirements: 1.4
     pub async fn delete_script(&self, id: &str) -> Result<()> {
+        // First, delete related deployment logs
+        sqlx::query("DELETE FROM deployment_logs WHERE deployment_id IN (SELECT id FROM deployments WHERE script_id = ?)")
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete deployment logs: {}", e)))?;
+
+        // Then, delete related deployments
+        sqlx::query("DELETE FROM deployments WHERE script_id = ?")
+            .bind(id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to delete deployments: {}", e)))?;
+
+        // Finally, delete the script
         let result = sqlx::query("DELETE FROM deployment_scripts WHERE id = ?")
             .bind(id)
             .execute(&self.db)

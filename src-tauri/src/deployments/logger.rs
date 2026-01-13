@@ -184,8 +184,8 @@ impl DeploymentLogger {
 
         sqlx::query(
             r#"
-            INSERT INTO deployment_logs (id, deployment_id, step_id, step_name, server_id, server_name, output, started_at, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO deployment_logs (id, deployment_id, step_id, step_name, server_id, server_name, output, stderr, started_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&log.id)
@@ -195,6 +195,7 @@ impl DeploymentLogger {
         .bind(&log.server_id)
         .bind(&log.server_name)
         .bind(&log.output)
+        .bind(&log.stderr)
         .bind(log.started_at.to_rfc3339())
         .bind(log.status.to_string())
         .execute(&self.db)
@@ -273,7 +274,7 @@ impl DeploymentLogger {
         sqlx::query(
             r#"
             UPDATE deployment_logs 
-            SET exit_code = ?, completed_at = ?, duration_ms = ?, status = ?, output = output || ?
+            SET exit_code = ?, completed_at = ?, duration_ms = ?, status = ?, output = output || ?, stderr = stderr || ?
             WHERE deployment_id = ? AND step_id = ? AND server_id = ?
             "#,
         )
@@ -281,7 +282,8 @@ impl DeploymentLogger {
         .bind(completed_at.to_rfc3339())
         .bind(result.duration_ms as i64)
         .bind(status.to_string())
-        .bind(&result.output)
+        .bind(&result.stdout)
+        .bind(&result.stderr)
         .bind(deployment_id)
         .bind(step_id)
         .bind(server_id)
@@ -442,7 +444,7 @@ impl DeploymentLogger {
     /// Get logs for a deployment
     pub async fn get_deployment_logs(&self, deployment_id: &str) -> Result<Vec<DeploymentLog>> {
         let rows = sqlx::query_as::<_, DeploymentLogRow>(
-            "SELECT id, deployment_id, step_id, step_name, server_id, server_name, output, exit_code, started_at, completed_at, duration_ms, status FROM deployment_logs WHERE deployment_id = ? ORDER BY started_at ASC"
+            "SELECT id, deployment_id, step_id, step_name, server_id, server_name, output, stderr, exit_code, started_at, completed_at, duration_ms, status FROM deployment_logs WHERE deployment_id = ? ORDER BY started_at ASC"
         )
         .bind(deployment_id)
         .fetch_all(&self.db)
@@ -592,9 +594,10 @@ impl DeploymentLogger {
     /// Requirements: 7.5
     pub async fn search_logs(&self, deployment_id: &str, search_term: &str) -> Result<Vec<DeploymentLog>> {
         let rows = sqlx::query_as::<_, DeploymentLogRow>(
-            "SELECT id, deployment_id, step_id, step_name, server_id, server_name, output, exit_code, started_at, completed_at, duration_ms, status FROM deployment_logs WHERE deployment_id = ? AND output LIKE ? ORDER BY started_at ASC"
+            "SELECT id, deployment_id, step_id, step_name, server_id, server_name, output, stderr, exit_code, started_at, completed_at, duration_ms, status FROM deployment_logs WHERE deployment_id = ? AND (output LIKE ? OR stderr LIKE ?) ORDER BY started_at ASC"
         )
         .bind(deployment_id)
+        .bind(format!("%{}%", search_term))
         .bind(format!("%{}%", search_term))
         .fetch_all(&self.db)
         .await
@@ -672,6 +675,7 @@ struct DeploymentLogRow {
     server_id: String,
     server_name: String,
     output: Option<String>,
+    stderr: Option<String>,
     exit_code: Option<i32>,
     started_at: String,
     completed_at: Option<String>,
@@ -702,6 +706,7 @@ impl DeploymentLogRow {
             server_id: self.server_id,
             server_name: self.server_name,
             output: self.output.unwrap_or_default(),
+            stderr: self.stderr.unwrap_or_default(),
             exit_code: self.exit_code,
             started_at,
             completed_at,

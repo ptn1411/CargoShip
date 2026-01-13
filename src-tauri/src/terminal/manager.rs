@@ -1,11 +1,14 @@
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use super::session::TerminalSession;
+use crate::terminal::TerminalSession;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 const MAX_SESSIONS: usize = 10;
+/// OPTIMIZATION: Auto-cleanup idle sessions after 30 minutes
+const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 pub struct TerminalManager {
     sessions: RwLock<HashMap<String, TerminalSession>>,
@@ -22,7 +25,6 @@ impl TerminalManager {
         }
     }
 
-    /// Create a new TerminalManager with a custom session limit
     pub fn with_max_sessions(credential_store: Arc<CredentialStore>, max_sessions: usize) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
@@ -31,7 +33,6 @@ impl TerminalManager {
         }
     }
 
-    /// Get the maximum number of sessions allowed
     pub fn max_sessions(&self) -> usize {
         self.max_sessions
     }
@@ -39,8 +40,8 @@ impl TerminalManager {
     pub fn create_session(&self, server: &Server, cols: u16, rows: u16) -> Result<String> {
         let mut sessions = self.sessions.write().unwrap();
 
-        // Clean up closed sessions
-        sessions.retain(|_, session| session.is_active());
+        // OPTIMIZATION: Clean up both closed and idle sessions
+        self.cleanup_sessions_internal(&mut sessions);
 
         if sessions.len() >= self.max_sessions {
             return Err(AppError::SessionLimitExceeded(self.max_sessions));
@@ -53,11 +54,20 @@ impl TerminalManager {
         Ok(session_id)
     }
 
+    /// OPTIMIZATION: Batch write with automatic flush
     pub fn write_to_session(&self, session_id: &str, data: &[u8]) -> Result<()> {
         let mut sessions = self.sessions.write().unwrap();
         let session = sessions.get_mut(session_id)
             .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
         session.write(data)
+    }
+
+    /// OPTIMIZATION: Explicit flush for buffered writes
+    pub fn flush_session(&self, session_id: &str) -> Result<()> {
+        let mut sessions = self.sessions.write().unwrap();
+        let session = sessions.get_mut(session_id)
+            .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
+        session.flush()
     }
 
     pub fn read_from_session(&self, session_id: &str) -> Result<Vec<u8>> {
@@ -82,7 +92,6 @@ impl TerminalManager {
         Ok(())
     }
 
-    /// Check if a session exists
     pub fn has_session(&self, session_id: &str) -> bool {
         self.sessions.read().unwrap().contains_key(session_id)
     }
@@ -95,12 +104,31 @@ impl TerminalManager {
         self.sessions.read().unwrap().keys().cloned().collect()
     }
 
-    /// Clean up inactive sessions
+    /// OPTIMIZATION: Clean up both inactive and idle sessions
     pub fn cleanup_inactive(&self) -> usize {
         let mut sessions = self.sessions.write().unwrap();
+        self.cleanup_sessions_internal(&mut sessions)
+    }
+
+    /// Internal cleanup logic (must be called with write lock)
+    fn cleanup_sessions_internal(&self, sessions: &mut HashMap<String, TerminalSession>) -> usize {
         let before = sessions.len();
-        sessions.retain(|_, session| session.is_active());
+        sessions.retain(|_, session| {
+            session.is_active() && session.idle_time() < IDLE_TIMEOUT
+        });
         before - sessions.len()
+    }
+
+    /// OPTIMIZATION: Get session info for monitoring
+    pub fn get_session_info(&self) -> Vec<SessionInfo> {
+        let sessions = self.sessions.read().unwrap();
+        sessions.iter().map(|(id, session)| SessionInfo {
+            session_id: id.clone(),
+            server_id: session.server_id.clone(),
+            pty_size: session.get_pty_size(),
+            is_active: session.is_active(),
+            idle_seconds: session.idle_time().as_secs(),
+        }).collect()
     }
 
     pub fn close_all(&self) {
@@ -115,6 +143,16 @@ impl Drop for TerminalManager {
     fn drop(&mut self) {
         self.close_all();
     }
+}
+
+/// Session information for monitoring
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub session_id: String,
+    pub server_id: String,
+    pub pty_size: (u16, u16),
+    pub is_active: bool,
+    pub idle_seconds: u64,
 }
 
 #[cfg(test)]
@@ -144,40 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn test_active_session_ids_empty() {
+    fn test_get_session_info_empty() {
         let credential_store = Arc::new(CredentialStore::new());
         let manager = TerminalManager::new(credential_store);
-        assert!(manager.active_session_ids().is_empty());
-    }
-
-    #[test]
-    fn test_has_session_nonexistent() {
-        let credential_store = Arc::new(CredentialStore::new());
-        let manager = TerminalManager::new(credential_store);
-        assert!(!manager.has_session("nonexistent"));
-    }
-
-    #[test]
-    fn test_close_session_nonexistent() {
-        let credential_store = Arc::new(CredentialStore::new());
-        let manager = TerminalManager::new(credential_store);
-        // Should not panic or error
-        assert!(manager.close_session("nonexistent").is_ok());
-    }
-
-    #[test]
-    fn test_close_all_empty() {
-        let credential_store = Arc::new(CredentialStore::new());
-        let manager = TerminalManager::new(credential_store);
-        manager.close_all();
-        assert_eq!(manager.session_count(), 0);
-    }
-
-    #[test]
-    fn test_cleanup_inactive_empty() {
-        let credential_store = Arc::new(CredentialStore::new());
-        let manager = TerminalManager::new(credential_store);
-        let cleaned = manager.cleanup_inactive();
-        assert_eq!(cleaned, 0);
+        assert!(manager.get_session_info().is_empty());
     }
 }

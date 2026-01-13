@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
   X,
   CheckCircle,
@@ -546,12 +546,16 @@ function StepLogSection({
   getStatusIcon,
   formatDuration,
 }: StepLogSectionProps) {
-  const logRef = useRef<HTMLPreElement>(null);
+  const [activeTab, setActiveTab] = useState<"stdout" | "stderr">("stdout");
 
   // Copy log output
   const copyOutput = () => {
-    navigator.clipboard.writeText(log.output);
+    const content = activeTab === "stdout" ? log.output : log.stderr;
+    navigator.clipboard.writeText(content);
   };
+
+  const hasStdout = log.output && log.output.trim().length > 0;
+  const hasStderr = log.stderr && log.stderr.trim().length > 0;
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={onToggle}>
@@ -564,6 +568,11 @@ function StepLogSection({
           )}
           {getStatusIcon(log.status)}
           <span className="flex-1 font-medium text-sm">{log.step_name}</span>
+          {hasStderr && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-destructive/10 text-destructive">
+              stderr
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {formatDuration(log.duration_ms)}
           </span>
@@ -584,19 +593,51 @@ function StepLogSection({
 
       <Collapsible.Content>
         <div className="px-4 pb-3">
-          <div className="relative">
-            <pre
-              ref={logRef}
+          {/* Tabs for stdout/stderr */}
+          <div className="flex items-center gap-1 mb-2">
+            <button
+              onClick={() => setActiveTab("stdout")}
               className={cn(
-                "p-3 rounded-md bg-zinc-900 text-zinc-100 text-xs font-mono overflow-auto max-h-80",
-                "whitespace-pre-wrap break-all"
+                "px-3 py-1 text-xs rounded-t-md transition-colors",
+                activeTab === "stdout"
+                  ? "bg-zinc-900 text-zinc-100"
+                  : "bg-zinc-800/50 text-zinc-400 hover:text-zinc-200"
               )}
             >
-              {log.output || (
-                <span className="text-zinc-500 italic">No output</span>
+              stdout {hasStdout && <span className="ml-1 text-green-400">●</span>}
+            </button>
+            <button
+              onClick={() => setActiveTab("stderr")}
+              className={cn(
+                "px-3 py-1 text-xs rounded-t-md transition-colors",
+                activeTab === "stderr"
+                  ? "bg-zinc-900 text-zinc-100"
+                  : "bg-zinc-800/50 text-zinc-400 hover:text-zinc-200"
+              )}
+            >
+              stderr {hasStderr && <span className="ml-1 text-red-400">●</span>}
+            </button>
+          </div>
+
+          <div className="relative">
+            <pre
+              className={cn(
+                "p-3 rounded-md rounded-tl-none bg-zinc-900 text-xs font-mono overflow-auto max-h-80",
+                "whitespace-pre-wrap break-all",
+                activeTab === "stderr" ? "text-red-300" : "text-zinc-100"
+              )}
+            >
+              {activeTab === "stdout" ? (
+                hasStdout ? log.output : (
+                  <span className="text-zinc-500 italic">No stdout output</span>
+                )
+              ) : (
+                hasStderr ? log.stderr : (
+                  <span className="text-zinc-500 italic">No stderr output</span>
+                )
               )}
             </pre>
-            {log.output && (
+            {((activeTab === "stdout" && hasStdout) || (activeTab === "stderr" && hasStderr)) && (
               <button
                 onClick={copyOutput}
                 className="absolute top-2 right-2 p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200"
