@@ -9,11 +9,13 @@ import { InputDialog } from "./InputDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { UploadDialog } from "./UploadDialog";
 import { SudoPasswordDialog } from "./SudoPasswordDialog";
+import { PermissionsDialog } from "./PermissionsDialog";
 import { FileEntry, fileApi, credentialApi } from "../../lib/tauri";
+import { ServerSelectionGrid } from "../ui";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 // Dialog state types
-type DialogType = "newFile" | "newFolder" | "rename" | "delete" | "upload" | null;
+type DialogType = "newFile" | "newFolder" | "rename" | "delete" | "upload" | "permissions" | null;
 
 // Pending operation for sudo retry
 interface PendingOperation {
@@ -61,7 +63,6 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
   const [pendingOperation, setPendingOperation] = useState<PendingOperation | null>(null);
 
   const currentServer = servers.find((s) => s.id === currentServerId);
-  const onlineServers = servers.filter((s) => serverStatus[s.id] === "online");
 
   // Check if error is sudo password required
   const isSudoPasswordError = (error: unknown): boolean => {
@@ -175,6 +176,12 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
   const handleUpload = () => {
     setDialogError(null);
     setActiveDialog("upload");
+  };
+
+  const handleChangePermissions = (entry: FileEntry) => {
+    setSelectedEntry(entry);
+    setDialogError(null);
+    setActiveDialog("permissions");
   };
 
   const closeDialog = () => {
@@ -346,6 +353,30 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
     }
   };
 
+  const handlePermissionsSubmit = async (mode: string) => {
+    if (!currentServerId || !selectedEntry) return;
+    
+    setIsProcessing(true);
+    setDialogError(null);
+    
+    try {
+      await fileApi.changePermissions(currentServerId, selectedEntry.path, mode);
+      showSuccess("Permissions changed", `${selectedEntry.name} → ${mode}`);
+      closeDialog();
+      await refreshDirectory();
+    } catch (error) {
+      if (isSudoPasswordError(error)) {
+        showError("Permission denied", "Changing permissions requires elevated privileges");
+        closeDialog();
+      } else {
+        const parsed = parseError(error);
+        setDialogError(parsed.message);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Validation functions
   const validateFileName = (name: string): string | null => {
     if (!name.trim()) {
@@ -373,46 +404,13 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">File Browser</h2>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-            <Server className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-medium mb-2">Select a server</h3>
-          <p className="text-muted-foreground mb-4">
-            Choose a connected server to browse its files
-          </p>
-          {onlineServers.length > 0 ? (
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90">
-                  Select Server
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  className="min-w-[200px] bg-popover border border-border rounded-md p-1 shadow-md z-50"
-                  sideOffset={5}
-                >
-                  {onlineServers.map((server) => (
-                    <DropdownMenu.Item
-                      key={server.id}
-                      className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer outline-none hover:bg-accent"
-                      onClick={() => handleServerSelect(server.id)}
-                    >
-                      <Server className="w-4 h-4" />
-                      {server.name}
-                    </DropdownMenu.Item>
-                  ))}
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No connected servers. Test a connection first.
-            </p>
-          )}
-        </div>
+        <ServerSelectionGrid
+          servers={servers}
+          serverStatus={serverStatus}
+          onSelect={handleServerSelect}
+          emptyTitle="No servers configured"
+          emptyDescription="Add a server first to browse files"
+        />
       </div>
     );
   }
@@ -551,6 +549,7 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
         onRename={handleRename}
         onDelete={handleDelete}
         onUpload={handleUpload}
+        onChangePermissions={handleChangePermissions}
       />
 
       {/* New File Dialog */}
@@ -621,6 +620,17 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
           closeDialog();
           refreshDirectory();
         }}
+      />
+
+      {/* Permissions Dialog */}
+      <PermissionsDialog
+        isOpen={activeDialog === "permissions"}
+        fileName={selectedEntry?.name || ""}
+        currentPermissions={selectedEntry?.permissions || ""}
+        isLoading={isProcessing}
+        error={dialogError}
+        onSubmit={handlePermissionsSubmit}
+        onClose={closeDialog}
       />
 
       {/* Sudo Password Dialog */}

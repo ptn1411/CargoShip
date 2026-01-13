@@ -24,6 +24,8 @@ interface TemplateSelectorProps {
   onTemplateSelected: (scriptId: string) => void;
   /** Callback when selector is closed */
   onClose: () => void;
+  /** Callback when user wants to create a blank script */
+  onCreateBlank?: () => void;
 }
 
 // Template category icons mapping
@@ -55,7 +57,7 @@ const categoryColors: Record<string, string> = {
  * with details and preview functionality.
  * Requirements: 3.1, 3.2
  */
-export function TemplateSelector({ onTemplateSelected, onClose }: TemplateSelectorProps) {
+export function TemplateSelector({ onTemplateSelected, onClose, onCreateBlank }: TemplateSelectorProps) {
   const templates = useAppStore((state) => state.templates);
   const loadTemplates = useAppStore((state) => state.loadTemplates);
   const createFromTemplate = useAppStore((state) => state.createFromTemplate);
@@ -142,13 +144,23 @@ export function TemplateSelector({ onTemplateSelected, onClose }: TemplateSelect
             Choose a template to get started quickly
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-md hover:bg-accent"
-          title="Close"
-        >
-          <X className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+          {onCreateBlank && (
+            <button
+              onClick={onCreateBlank}
+              className="px-3 py-1.5 text-sm rounded-md border border-border hover:bg-accent"
+            >
+              Create Blank Script
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-accent"
+            title="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Search and Filter */}

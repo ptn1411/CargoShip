@@ -558,6 +558,25 @@ async fn delete_remote_file(
         .map_err(|e| e.to_string())
 }
 
+/// Change file/directory permissions on the remote server
+#[tauri::command]
+async fn change_permissions(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    remote_path: String,
+    mode: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+
+    state.file_manager.change_permissions(&server, &remote_path, &mode)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Rename a file or directory on the remote server
 /// Requirements: 4.4, 4.5, 4.6
 #[tauri::command]
@@ -1219,6 +1238,7 @@ pub fn run() {
             delete_remote_file,
             rename_file,
             upload_files,
+            change_permissions,
             // Sync commands (Task 6.2)
             check_file_conflict,
             get_file_diff,

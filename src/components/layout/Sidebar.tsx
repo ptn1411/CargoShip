@@ -1,17 +1,18 @@
-import { Server, FolderOpen, Terminal, Sun, Moon, Monitor } from "lucide-react";
+import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 interface SidebarProps {
-  activeItem: "servers" | "files" | "terminal";
-  onItemSelect: (item: "servers" | "files" | "terminal") => void;
+  activeItem: "servers" | "files" | "terminal" | "scripts";
+  onItemSelect: (item: "servers" | "files" | "terminal" | "scripts") => void;
 }
 
 const navItems = [
   { id: "servers" as const, label: "Servers", icon: Server },
   { id: "files" as const, label: "Files", icon: FolderOpen },
   { id: "terminal" as const, label: "Terminal", icon: Terminal },
+  { id: "scripts" as const, label: "Scripts", icon: ScrollText },
 ];
 
 function ThemeToggle() {

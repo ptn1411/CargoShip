@@ -22,6 +22,9 @@ pub struct ExecutionConfig {
     pub parallel: bool,
     #[serde(default)]
     pub dry_run: bool,
+    /// Optional sudo password for commands requiring elevated privileges
+    #[serde(default)]
+    pub sudo_password: Option<String>,
 }
 
 /// Result of a dry-run execution
@@ -120,12 +123,18 @@ impl ScriptEngine {
             return Err(AppError::ValidationError("No servers specified for deployment".to_string()));
         }
 
-        // Create deployment record
+        // Merge sudo_password into variables if provided
+        let mut variables = config.variables.clone();
+        if let Some(ref sudo_pass) = config.sudo_password {
+            variables.insert("__sudo_password__".to_string(), sudo_pass.clone());
+        }
+
+        // Create deployment record (without sudo password for security)
         let deployment = self.deployment_logger.create_deployment(
             &script.id,
             &script.name,
             &config.server_ids,
-            &config.variables,
+            &config.variables, // Use original variables without sudo password
             &whoami::username(),
         ).await?;
 
@@ -140,9 +149,9 @@ impl ScriptEngine {
 
         // Execute based on parallel/sequential mode
         let result = if config.parallel && servers.len() > 1 {
-            self.execute_parallel(script, &deployment, &servers, &config.variables, cancel_flag.clone()).await
+            self.execute_parallel(script, &deployment, &servers, &variables, cancel_flag.clone()).await
         } else {
-            self.execute_sequential(script, &deployment, &servers, &config.variables, cancel_flag.clone()).await
+            self.execute_sequential(script, &deployment, &servers, &variables, cancel_flag.clone()).await
         };
 
         // Remove from running deployments
@@ -779,6 +788,9 @@ async fn execute_single_step(
     let mut combined_output = String::new();
     let mut final_exit_code = 0;
 
+    // Get sudo password if provided
+    let sudo_password = variables.get("__sudo_password__").cloned();
+
     // Build the full command with working directory and environment
     for command in &step.commands {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -825,6 +837,9 @@ async fn execute_single_step(
             full_command
         };
 
+        // Wrap sudo commands with password if provided
+        let full_command = wrap_sudo_with_password(&full_command, &sudo_password);
+
         // Execute command with timeout (Requirements: 5.7)
         let timeout_secs = step.timeout.or(Some(300)); // Default 5 minute timeout
         
@@ -863,6 +878,24 @@ async fn execute_single_step(
         output: combined_output,
         duration_ms: duration.as_millis() as u64,
     })
+}
+
+/// Wrap sudo commands with password using stdin
+/// This converts "sudo cmd" to "echo 'password' | sudo -S cmd"
+fn wrap_sudo_with_password(command: &str, sudo_password: &Option<String>) -> String {
+    if let Some(ref password) = sudo_password {
+        // Check if command contains sudo
+        if command.contains("sudo ") {
+            // Escape password for shell
+            let escaped_password = shell_escape(password);
+            // Replace "sudo " with "echo 'password' | sudo -S "
+            command.replace("sudo ", &format!("echo {} | sudo -S ", escaped_password))
+        } else {
+            command.to_string()
+        }
+    } else {
+        command.to_string()
+    }
 }
 
 /// Escape a string for shell usage

@@ -3,6 +3,7 @@ import { Sidebar, MainContent, StatusBar } from "./components/layout";
 import { ServerList } from "./components/servers";
 import { FileBrowser } from "./components/files";
 import { TerminalContainer } from "./components/terminal";
+import { ScriptManagement } from "./components/scripts";
 import { FileEditor, EditorModal } from "./components/editor";
 import { ToastContainer } from "./components/ui";
 import { useAppStore, setupEventListeners } from "./store";
@@ -81,13 +82,13 @@ function App() {
       case "servers":
         return <ServerList />;
       case "files":
-        // Show FileBrowser with Open button to open editor modal
+        // Show FileBrowser - hide side editor when modal is open
         return (
           <div className="h-full flex gap-4">
-            <div className={openFiles.length > 0 ? "w-1/3 min-w-[300px] max-w-[400px]" : "w-full"}>
+            <div className={(openFiles.length > 0 && !isEditorModalOpen) ? "w-1/3 min-w-[300px] max-w-[400px]" : "w-full"}>
               <FileBrowser onOpenFileFullscreen={() => setIsEditorModalOpen(true)} />
             </div>
-            {openFiles.length > 0 && (
+            {openFiles.length > 0 && !isEditorModalOpen && (
               <div className="flex-1 min-w-0">
                 <FileEditor />
               </div>
@@ -96,6 +97,8 @@ function App() {
         );
       case "terminal":
         return <TerminalContainer />;
+      case "scripts":
+        return <ScriptManagement />;
       default:
         return <ServerList />;
     }

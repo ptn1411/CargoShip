@@ -10,6 +10,7 @@ import {
   Settings,
   Eye,
   Loader2,
+  Play,
 } from "lucide-react";
 import * as Tabs from "@radix-ui/react-tabs";
 import { cn } from "../../lib/utils";
@@ -21,12 +22,15 @@ import {
   ValidationResult,
   Variable,
   Step,
+  Deployment,
 } from "../../lib/tauri";
 import { parseError } from "../../lib/errorHandler";
 import { LoadingSpinner } from "../ui";
 import { StepEditor } from "./StepEditor";
 import { VariableEditor } from "./VariableEditor";
 import { ScriptPreview } from "./ScriptPreview";
+import { DeploymentWizard } from "./DeploymentWizard";
+import { DeploymentProgress } from "./DeploymentProgress";
 
 interface ScriptEditorProps {
   /** Script to edit (null for new script) */
@@ -67,6 +71,13 @@ export function ScriptEditor({ script, onClose, onSaved }: ScriptEditorProps) {
   const [isValidating, setIsValidating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showRunWizard, setShowRunWizard] = useState(false);
+  const [savedScript, setSavedScript] = useState<DeploymentScript | null>(null);
+  const [activeDeployment, setActiveDeployment] = useState<Deployment | null>(null);
+  const [showDeploymentProgress, setShowDeploymentProgress] = useState(false);
+
+  // Get deployments from store to find the active one
+  const deployments = useAppStore((state) => state.deployments);
 
   // Initialize from script
   useEffect(() => {
@@ -91,6 +102,16 @@ export function ScriptEditor({ script, onClose, onSaved }: ScriptEditorProps) {
     }
     setHasChanges(false);
   }, [script]);
+
+  // Update active deployment when deployments change (for real-time updates)
+  useEffect(() => {
+    if (activeDeployment) {
+      const updated = deployments.find((d) => d.id === activeDeployment.id);
+      if (updated) {
+        setActiveDeployment(updated);
+      }
+    }
+  }, [deployments, activeDeployment?.id]);
 
   // Determine Monaco theme
   const getMonacoTheme = useCallback(() => {
@@ -317,6 +338,20 @@ export function ScriptEditor({ script, onClose, onSaved }: ScriptEditorProps) {
             Validate
           </button>
 
+          {/* Run Button - only show for saved scripts */}
+          {script && (
+            <button
+              onClick={() => {
+                setSavedScript(script);
+                setShowRunWizard(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-green-500/10 text-green-500 border border-green-500/20 hover:bg-green-500/20"
+            >
+              <Play className="w-4 h-4" />
+              Run
+            </button>
+          )}
+
           {/* Save Button */}
           <button
             onClick={handleSave}
@@ -458,6 +493,35 @@ export function ScriptEditor({ script, onClose, onSaved }: ScriptEditorProps) {
           />
         </Tabs.Content>
       </Tabs.Root>
+
+      {/* Deployment Wizard */}
+      {savedScript && (
+        <DeploymentWizard
+          script={savedScript}
+          open={showRunWizard}
+          onOpenChange={(open) => {
+            setShowRunWizard(open);
+            if (!open) setSavedScript(null);
+          }}
+          onDeploymentStarted={(_deploymentId, deployment) => {
+            setShowRunWizard(false);
+            setSavedScript(null);
+            // Show progress dialog with the deployment object directly
+            setActiveDeployment(deployment);
+            setShowDeploymentProgress(true);
+          }}
+        />
+      )}
+
+      {/* Deployment Progress Dialog */}
+      <DeploymentProgress
+        deployment={activeDeployment}
+        open={showDeploymentProgress}
+        onOpenChange={(open) => {
+          setShowDeploymentProgress(open);
+          if (!open) setActiveDeployment(null);
+        }}
+      />
     </div>
   );
 }
@@ -577,20 +641,25 @@ function parseSimpleYaml(yaml: string): Partial<DeploymentScript> | null {
     const lines = yaml.split("\n");
     let currentSection = "";
     let currentItem: Record<string, unknown> | null = null;
-    let currentList: unknown[] = [];
-    let indentLevel = 0;
+    let inCommandsList = false;
+    let inEnvBlock = false;
     
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
       
       // Calculate indent
       const indent = line.search(/\S/);
       
-      // Top-level keys
+      // Top-level keys (indent 0)
       if (indent === 0 && trimmed.includes(":")) {
-        const [key, ...valueParts] = trimmed.split(":");
-        const value = valueParts.join(":").trim();
+        const colonIndex = trimmed.indexOf(":");
+        const key = trimmed.substring(0, colonIndex).trim();
+        const value = trimmed.substring(colonIndex + 1).trim();
+        
+        inCommandsList = false;
+        inEnvBlock = false;
         
         if (key === "name") {
           result.name = value.replace(/^["']|["']$/g, "");
@@ -598,91 +667,128 @@ function parseSimpleYaml(yaml: string): Partial<DeploymentScript> | null {
           result.description = value.replace(/^["']|["']$/g, "");
         } else if (key === "variables") {
           currentSection = "variables";
-          currentList = [];
-          result.variables = currentList as Variable[];
+          currentItem = null;
         } else if (key === "steps") {
           currentSection = "steps";
-          currentList = [];
-          result.steps = currentList as Step[];
+          currentItem = null;
         } else if (key === "rollback_steps") {
           currentSection = "rollback_steps";
-          currentList = [];
-          result.rollback_steps = currentList as Step[];
+          currentItem = null;
         } else if (key === "tags") {
           currentSection = "tags";
-          currentList = [];
-          result.tags = currentList as string[];
+          currentItem = null;
         }
-        indentLevel = 0;
-        currentItem = null;
+        continue;
       }
-      // List items
-      else if (trimmed.startsWith("- ")) {
+      
+      // List item start (- )
+      if (trimmed.startsWith("- ")) {
         const content = trimmed.substring(2).trim();
+        inCommandsList = false;
+        inEnvBlock = false;
         
+        // Tags are simple strings
         if (currentSection === "tags") {
-          currentList.push(content);
-        } else if (currentSection === "variables" || currentSection === "steps" || currentSection === "rollback_steps") {
-          // New item in list
-          if (content.includes(":")) {
-            const [key, ...valueParts] = content.split(":");
-            const value = valueParts.join(":").trim().replace(/^["']|["']$/g, "");
-            
-            if (currentSection === "variables") {
-              currentItem = {
-                name: "",
-                description: "",
-                default_value: null,
-                required: false,
-                var_type: "string",
-              };
-              if (key === "name") currentItem.name = value;
+          (result.tags as string[]).push(content.replace(/^["']|["']$/g, ""));
+          continue;
+        }
+        
+        // Commands list item
+        if (inCommandsList && currentItem && Array.isArray(currentItem.commands)) {
+          (currentItem.commands as string[]).push(content.replace(/^["']|["']$/g, ""));
+          continue;
+        }
+        
+        // Check if this is a new object item (has key:value)
+        if (content.includes(":")) {
+          const colonIndex = content.indexOf(":");
+          const key = content.substring(0, colonIndex).trim();
+          const value = content.substring(colonIndex + 1).trim().replace(/^["']|["']$/g, "");
+          
+          if (currentSection === "variables") {
+            currentItem = {
+              name: "",
+              description: "",
+              default_value: null,
+              required: false,
+              var_type: "string",
+            };
+            currentItem[key] = value;
+            (result.variables as Variable[]).push(currentItem as unknown as Variable);
+          } else if (currentSection === "steps" || currentSection === "rollback_steps") {
+            currentItem = {
+              id: "",
+              name: "",
+              commands: [],
+              working_dir: null,
+              env: {},
+              condition: null,
+              on_error: "abort",
+              timeout: null,
+            };
+            currentItem[key] = value;
+            if (currentSection === "steps") {
+              (result.steps as Step[]).push(currentItem as unknown as Step);
             } else {
-              currentItem = {
-                id: "",
-                name: "",
-                commands: [],
-                working_dir: null,
-                env: {},
-                condition: null,
-                on_error: "abort",
-                timeout: null,
-              };
-              if (key === "id") currentItem.id = value;
-            }
-            currentList.push(currentItem);
-          } else if (indent > 4 && currentItem) {
-            // Command in commands list
-            if (Array.isArray(currentItem.commands)) {
-              (currentItem.commands as string[]).push(content);
+              (result.rollback_steps as Step[]).push(currentItem as unknown as Step);
             }
           }
+        } else if (indent > 4 && currentItem && Array.isArray(currentItem.commands)) {
+          // This is a command in commands list
+          (currentItem.commands as string[]).push(content.replace(/^["']|["']$/g, ""));
         }
-        indentLevel = indent;
+        continue;
       }
-      // Properties of current item
-      else if (indent > 0 && currentItem && trimmed.includes(":")) {
-        const [key, ...valueParts] = trimmed.split(":");
-        let value = valueParts.join(":").trim().replace(/^["']|["']$/g, "");
+      
+      // Property of current item
+      if (indent > 0 && currentItem && trimmed.includes(":")) {
+        const colonIndex = trimmed.indexOf(":");
+        const key = trimmed.substring(0, colonIndex).trim();
+        const value = trimmed.substring(colonIndex + 1).trim().replace(/^["']|["']$/g, "");
         
         if (key === "commands") {
-          // Commands is a list, handled by list items
+          inCommandsList = true;
+          inEnvBlock = false;
+          // Initialize commands array if not exists
+          if (!Array.isArray(currentItem.commands)) {
+            currentItem.commands = [];
+          }
         } else if (key === "env") {
-          // Env is an object, handled separately
+          inEnvBlock = true;
+          inCommandsList = false;
+          if (typeof currentItem.env !== "object") {
+            currentItem.env = {};
+          }
+        } else if (inEnvBlock && indent > 4) {
+          // Env key-value pair
+          (currentItem.env as Record<string, string>)[key] = value;
         } else if (key === "required") {
           currentItem.required = value === "true";
         } else if (key === "timeout") {
-          currentItem.timeout = parseInt(value) || null;
+          currentItem.timeout = value ? parseInt(value) : null;
         } else if (key === "default_value") {
           currentItem.default_value = value || null;
-        } else {
+        } else if (value) {
           currentItem[key] = value;
         }
+        continue;
+      }
+      
+      // Command in commands list (just a string with - prefix at deeper indent)
+      if (inCommandsList && trimmed.startsWith("- ") && currentItem && Array.isArray(currentItem.commands)) {
+        const cmd = trimmed.substring(2).trim().replace(/^["']|["']$/g, "");
+        (currentItem.commands as string[]).push(cmd);
       }
     }
     
+    // Filter out invalid items
+    result.steps = (result.steps as Step[]).filter(s => s.id && s.name && s.commands && s.commands.length > 0);
+    result.rollback_steps = (result.rollback_steps as Step[]).filter(s => s.id && s.name && s.commands && s.commands.length > 0);
+    result.variables = (result.variables as Variable[]).filter(v => v.name);
+    
     return result;
-  } catch {
+  } catch (e) {
+    console.error("YAML parse error:", e);
     return null;
   }
 }

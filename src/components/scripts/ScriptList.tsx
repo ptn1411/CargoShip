@@ -12,6 +12,7 @@ import {
   Upload,
   Tag,
   Clock,
+  Play,
 } from "lucide-react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { cn } from "../../lib/utils";
@@ -23,6 +24,8 @@ import { ConfirmDialog } from "../files/ConfirmDialog";
 interface ScriptListProps {
   onEditScript: (script: DeploymentScript) => void;
   onCreateNew: () => void;
+  onRunScript?: (script: DeploymentScript) => void;
+  hideHeader?: boolean;
 }
 
 /**
@@ -30,7 +33,7 @@ interface ScriptListProps {
  * Actions: edit, duplicate, delete, export
  * Requirements: 1.2
  */
-export function ScriptList({ onEditScript, onCreateNew }: ScriptListProps) {
+export function ScriptList({ onEditScript, onCreateNew, onRunScript, hideHeader = false }: ScriptListProps) {
   const scripts = useAppStore((state) => state.scripts);
   const selectedScriptId = useAppStore((state) => state.selectedScriptId);
   const isLoadingScripts = useAppStore((state) => state.isLoadingScripts);
@@ -147,10 +150,44 @@ export function ScriptList({ onEditScript, onCreateNew }: ScriptListProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Deployment Scripts</h2>
-        <div className="flex items-center gap-2">
-          {/* Import Button */}
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Deployment Scripts</h2>
+          <div className="flex items-center gap-2">
+            {/* Import Button */}
+            <button
+              onClick={handleImportScript}
+              className="p-2 rounded-md border border-border hover:bg-accent"
+              title="Import Script"
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+
+            {/* Refresh Button */}
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="p-2 rounded-md border border-border hover:bg-accent disabled:opacity-50"
+              title="Refresh"
+            >
+              <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
+            </button>
+
+            {/* Create Script Button */}
+            <button
+              onClick={onCreateNew}
+              className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+            >
+              <Plus className="w-4 h-4" />
+              New Script
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar when header is hidden */}
+      {hideHeader && (
+        <div className="flex items-center justify-end gap-2 mb-4">
           <button
             onClick={handleImportScript}
             className="p-2 rounded-md border border-border hover:bg-accent"
@@ -158,8 +195,6 @@ export function ScriptList({ onEditScript, onCreateNew }: ScriptListProps) {
           >
             <Upload className="w-4 h-4" />
           </button>
-
-          {/* Refresh Button */}
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
@@ -168,17 +203,8 @@ export function ScriptList({ onEditScript, onCreateNew }: ScriptListProps) {
           >
             <RefreshCw className={cn("w-4 h-4", isRefreshing && "animate-spin")} />
           </button>
-
-          {/* Create Script Button */}
-          <button
-            onClick={onCreateNew}
-            className="flex items-center gap-2 px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90"
-          >
-            <Plus className="w-4 h-4" />
-            New Script
-          </button>
         </div>
-      </div>
+      )}
 
       {/* Error Message */}
       {scriptError && (
@@ -224,6 +250,7 @@ export function ScriptList({ onEditScript, onCreateNew }: ScriptListProps) {
               isSelected={selectedScriptId === script.id}
               onSelect={() => handleSelectScript(script)}
               onEdit={() => handleEditScript(script)}
+              onRun={onRunScript ? () => onRunScript(script) : undefined}
               onDuplicate={() => handleDuplicateScript(script)}
               onExport={() => handleExportScript(script)}
               onDelete={() => setDeleteTarget(script)}
@@ -255,6 +282,7 @@ interface ScriptCardProps {
   isSelected: boolean;
   onSelect: () => void;
   onEdit: () => void;
+  onRun?: () => void;
   onDuplicate: () => void;
   onExport: () => void;
   onDelete: () => void;
@@ -266,6 +294,7 @@ function ScriptCard({
   isSelected,
   onSelect,
   onEdit,
+  onRun,
   onDuplicate,
   onExport,
   onDelete,
@@ -283,7 +312,20 @@ function ScriptCard({
       onDoubleClick={onEdit}
     >
       {/* Actions Menu */}
-      <div className="absolute top-3 right-3">
+      <div className="absolute top-3 right-3 flex items-center gap-1">
+        {/* Run Button */}
+        {onRun && (
+          <button
+            className="p-1.5 rounded bg-green-500/10 hover:bg-green-500/20 text-green-500"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRun();
+            }}
+            title="Run Script"
+          >
+            <Play className="w-4 h-4" />
+          </button>
+        )}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
@@ -298,6 +340,18 @@ function ScriptCard({
               className="min-w-[140px] bg-popover border border-border rounded-md p-1 shadow-md z-50"
               sideOffset={5}
             >
+              {onRun && (
+                <DropdownMenu.Item
+                  className="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer outline-none hover:bg-accent text-green-500"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRun();
+                  }}
+                >
+                  <Play className="w-4 h-4" />
+                  Run
+                </DropdownMenu.Item>
+              )}
               <DropdownMenu.Item
                 className="flex items-center gap-2 px-2 py-1.5 text-sm rounded cursor-pointer outline-none hover:bg-accent"
                 onClick={(e) => {

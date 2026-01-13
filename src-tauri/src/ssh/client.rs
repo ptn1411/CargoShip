@@ -213,14 +213,15 @@ impl SshClient {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, server, &self.credential_store)?;
 
-        // Set session to non-blocking for timeout/cancel support
-        session.set_blocking(false);
-
+        // Keep session blocking for channel creation
         let mut channel = session.channel_session()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to open channel: {}", e)))?;
         
         channel.exec(command)
             .map_err(|e| AppError::CommandFailed(format!("Failed to execute command: {}", e)))?;
+
+        // Set session to non-blocking AFTER channel is opened and command is executed
+        session.set_blocking(false);
 
         // Read output with timeout and cancellation checks
         let mut stdout = Vec::new();

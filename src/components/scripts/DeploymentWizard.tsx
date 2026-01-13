@@ -21,6 +21,7 @@ import {
   ExecutionConfig,
   DryRunResult,
   Server as ServerType,
+  Deployment,
 } from "../../lib/tauri";
 import { parseError } from "../../lib/errorHandler";
 
@@ -31,8 +32,8 @@ interface DeploymentWizardProps {
   open: boolean;
   /** Callback when wizard is closed */
   onOpenChange: (open: boolean) => void;
-  /** Callback when deployment starts */
-  onDeploymentStarted?: (deploymentId: string) => void;
+  /** Callback when deployment starts - receives deployment object for showing progress */
+  onDeploymentStarted?: (deploymentId: string, deployment: Deployment) => void;
 }
 
 type WizardStep = "servers" | "variables" | "review";
@@ -61,6 +62,7 @@ export function DeploymentWizard({
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
   const [parallelExecution, setParallelExecution] = useState(true);
+  const [sudoPassword, setSudoPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDryRunning, setIsDryRunning] = useState(false);
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null);
@@ -87,6 +89,7 @@ export function DeploymentWizard({
       setCurrentStep("servers");
       setDryRunResult(null);
       setValidationErrors([]);
+      setSudoPassword("");
     }
   }, [open, script]);
 
@@ -190,11 +193,12 @@ export function DeploymentWizard({
         variables: variableValues,
         parallel: parallelExecution,
         dry_run: false,
+        sudo_password: sudoPassword || undefined,
       };
       const deployment = await startDeployment(config);
       showSuccess("Deployment started", `Deploying ${script.name}`);
       onOpenChange(false);
-      onDeploymentStarted?.(deployment.id);
+      onDeploymentStarted?.(deployment.id, deployment);
     } catch (error) {
       const parsed = parseError(error);
       showError(parsed.title, parsed.message);
@@ -311,6 +315,8 @@ export function DeploymentWizard({
                 variableValues={variableValues}
                 parallelExecution={parallelExecution}
                 onParallelChange={setParallelExecution}
+                sudoPassword={sudoPassword}
+                onSudoPasswordChange={setSudoPassword}
                 dryRunResult={dryRunResult}
                 isDryRunning={isDryRunning}
                 onDryRun={handleDryRun}
@@ -603,6 +609,8 @@ interface ReviewStepProps {
   variableValues: Record<string, string>;
   parallelExecution: boolean;
   onParallelChange: (parallel: boolean) => void;
+  sudoPassword: string;
+  onSudoPasswordChange: (password: string) => void;
   dryRunResult: DryRunResult | null;
   isDryRunning: boolean;
   onDryRun: () => void;
@@ -614,6 +622,8 @@ function ReviewStep({
   variableValues,
   parallelExecution,
   onParallelChange,
+  sudoPassword,
+  onSudoPasswordChange,
   dryRunResult,
   isDryRunning,
   onDryRun,
@@ -712,6 +722,21 @@ function ReviewStep({
           {parallelExecution
             ? "Execute on all servers simultaneously"
             : "Execute on servers one at a time"}
+        </p>
+      </div>
+
+      {/* Sudo Password */}
+      <div>
+        <h4 className="text-sm font-medium mb-2">Sudo Password (Optional)</h4>
+        <input
+          type="password"
+          value={sudoPassword}
+          onChange={(e) => onSudoPasswordChange(e.target.value)}
+          placeholder="Enter sudo password if required"
+          className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Required if script contains sudo commands and user needs password authentication
         </p>
       </div>
 

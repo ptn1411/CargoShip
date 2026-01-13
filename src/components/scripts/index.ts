@@ -1,5 +1,6 @@
 export { ScriptList } from "./ScriptList";
 export { ScriptEditor } from "./ScriptEditor";
+export { ScriptManagement } from "./ScriptManagement";
 export { StepEditor } from "./StepEditor";
 export { VariableEditor } from "./VariableEditor";
 export { ScriptPreview } from "./ScriptPreview";

@@ -185,6 +185,8 @@ export const fileApi = {
     invoke<void>("rename_file", { serverId, oldPath, newPath }),
   uploadFiles: (serverId: string, remoteDir: string, localPaths: string[]) =>
     invoke<void>("upload_files", { serverId, remoteDir, localPaths }),
+  changePermissions: (serverId: string, remotePath: string, mode: string) =>
+    invoke<void>("change_permissions", { serverId, remotePath, mode }),
 };
 
 // Sync API (Phase 2)
@@ -431,6 +433,8 @@ export interface ExecutionConfig {
   variables: Record<string, string>;
   parallel?: boolean;
   dry_run?: boolean;
+  /** Optional sudo password for commands requiring elevated privileges */
+  sudo_password?: string;
 }
 
 export interface DryRunStep {

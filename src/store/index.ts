@@ -158,7 +158,7 @@ export interface AppState {
   deploymentError: string | null;
 
   // UI
-  sidebarItem: "servers" | "files" | "terminal";
+  sidebarItem: "servers" | "files" | "terminal" | "scripts";
   theme: "light" | "dark" | "system";
 
   // Toasts
@@ -225,7 +225,7 @@ export interface AppState {
   clearDeploymentLogs: (deploymentId: string) => void;
 
   // UI Actions
-  setSidebarItem: (item: "servers" | "files" | "terminal") => void;
+  setSidebarItem: (item: "servers" | "files" | "terminal" | "scripts") => void;
   setTheme: (theme: "light" | "dark" | "system") => void;
   clearErrors: () => void;
 
@@ -1097,7 +1097,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // UI Actions
-  setSidebarItem: (item: "servers" | "files" | "terminal") => {
+  setSidebarItem: (item: "servers" | "files" | "terminal" | "scripts") => {
     set({ sidebarItem: item });
   },
 

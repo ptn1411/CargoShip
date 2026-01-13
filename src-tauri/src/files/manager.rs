@@ -129,10 +129,11 @@ impl FileManager {
         
         let tee_command = if use_sudo {
             if let Some(password) = sudo_password {
+                // Use sudo -S to read password from stdin, then pipe content to tee
                 format!(
-                    "echo '{}' | base64 -d | echo '{}' | sudo -S tee '{}' > /dev/null 2>&1",
-                    encoded,
+                    "echo '{}' | sudo -S sh -c \"echo '{}' | base64 -d > '{}'\" 2>/dev/null",
                     password.replace("'", "'\\''"),
+                    encoded,
                     path.replace("'", "'\\''")
                 )
             } else {
@@ -144,7 +145,7 @@ impl FileManager {
             }
         } else {
             format!(
-                "echo '{}' | base64 -d | tee '{}' > /dev/null",
+                "echo '{}' | base64 -d > '{}'",
                 encoded,
                 path.replace("'", "'\\''")
             )
@@ -748,6 +749,28 @@ impl FileManager {
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to stat file: {}", e)))?;
 
         Ok(stat.mtime.unwrap_or(0) as i64)
+    }
+
+    /// Change file/directory permissions on the remote server
+    pub async fn change_permissions(&self, server: &Server, remote_path: &str, mode: &str) -> Result<()> {
+        let normalized_path = normalize_path(remote_path);
+        
+        // Validate mode (should be 3 octal digits like "755")
+        if mode.len() != 3 || !mode.chars().all(|c| c >= '0' && c <= '7') {
+            return Err(AppError::ValidationError(format!("Invalid permission mode: {}. Expected 3 octal digits (e.g., 755)", mode)));
+        }
+        
+        // Get cached sudo password if available
+        let sudo_password = self.get_sudo_password(&server.id).await;
+        let sudo_pwd_ref = sudo_password.as_deref();
+        
+        let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
+        authenticate_session(&session, server, &self.credential_store)?;
+
+        let command = format!("chmod {} '{}'", mode, normalized_path.replace("'", "'\\''"));
+        self.exec_command_with_sudo_password(&session, &command, server.use_sudo, sudo_pwd_ref)?;
+
+        Ok(())
     }
 }
 

@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Plus, Server, ChevronDown, Loader2, Terminal } from "lucide-react";
+import { Plus, Server, Loader2 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import { parseError } from "../../lib/errorHandler";
 import { TerminalTab } from "./TerminalTab";
 import { TerminalView } from "./TerminalView";
+import { ServerSelectionGrid } from "../ui";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 export function TerminalContainer() {
@@ -64,55 +65,14 @@ export function TerminalContainer() {
           </div>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-center text-center">
-          <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-            <Terminal className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-medium mb-2">No terminal sessions</h3>
-          <p className="text-muted-foreground mb-4">
-            Open a terminal to a connected server
-          </p>
-
-          {onlineServers.length > 0 ? (
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger asChild>
-                <button
-                  disabled={isOpening || isCreatingTerminal}
-                  className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {(isOpening || isCreatingTerminal) ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Plus className="w-4 h-4" />
-                  )}
-                  New Terminal
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  className="min-w-[200px] bg-popover border border-border rounded-md p-1 shadow-md z-50"
-                  sideOffset={5}
-                >
-                  {onlineServers.map((server) => (
-                    <DropdownMenu.Item
-                      key={server.id}
-                      className="flex items-center gap-2 px-3 py-2 text-sm rounded cursor-pointer outline-none hover:bg-accent"
-                      onClick={() => handleOpenTerminal(server.id)}
-                    >
-                      <Server className="w-4 h-4" />
-                      {server.name}
-                    </DropdownMenu.Item>
-                  ))}
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No connected servers. Test a connection first.
-            </p>
-          )}
-        </div>
+        <ServerSelectionGrid
+          servers={servers}
+          serverStatus={serverStatus}
+          onSelect={handleOpenTerminal}
+          emptyTitle="No servers configured"
+          emptyDescription="Add a server first to open a terminal"
+          isLoading={isOpening || isCreatingTerminal}
+        />
       </div>
     );
   }

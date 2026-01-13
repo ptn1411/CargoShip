@@ -32,6 +32,13 @@ impl TemplateLibrary {
             Self::database_migration_template(),
             Self::ssl_setup_template(),
             Self::firewall_config_template(),
+            // New installation templates
+            Self::nginx_install_template(),
+            Self::mysql_install_template(),
+            Self::redis_install_template(),
+            Self::nginx_vhost_template(),
+            Self::mysql_database_template(),
+            Self::redis_config_template(),
         ];
         
         for template in builtin {
@@ -86,8 +93,9 @@ impl TemplateLibrary {
         match name {
             "Node.js Deployment" | "PHP Deployment" | "Python Deployment" => "Application".to_string(),
             "Docker Compose Deployment" => "Container".to_string(),
-            "Static Site (Nginx)" => "Web Server".to_string(),
-            "Database Migration" => "Database".to_string(),
+            "Static Site (Nginx)" | "Install Nginx" | "Nginx Virtual Host" => "Web Server".to_string(),
+            "Database Migration" | "Install MySQL" | "MySQL Create Database" => "Database".to_string(),
+            "Install Redis" | "Redis Configuration" => "Cache".to_string(),
             "SSL Certificate Setup" | "Firewall Configuration" => "Security".to_string(),
             _ => "Other".to_string(),
         }
@@ -1002,8 +1010,8 @@ impl TemplateLibrary {
                     id: "step-1".to_string(),
                     name: "Install Certbot".to_string(),
                     commands: vec![
-                        "apt-get update".to_string(),
-                        "apt-get install -y certbot python3-certbot-{{web_server}}".to_string(),
+                        "sudo apt-get update".to_string(),
+                        "sudo apt-get install -y certbot python3-certbot-{{web_server}}".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1015,7 +1023,7 @@ impl TemplateLibrary {
                     id: "step-2".to_string(),
                     name: "Obtain SSL certificate".to_string(),
                     commands: vec![
-                        "certbot --{{web_server}} -d {{domain}} --non-interactive --agree-tos -m {{email}} --redirect".to_string(),
+                        "sudo certbot --{{web_server}} -d {{domain}} --non-interactive --agree-tos -m {{email}} --redirect".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1027,8 +1035,8 @@ impl TemplateLibrary {
                     id: "step-3".to_string(),
                     name: "Setup auto-renewal".to_string(),
                     commands: vec![
-                        "systemctl enable certbot.timer".to_string(),
-                        "systemctl start certbot.timer".to_string(),
+                        "sudo systemctl enable certbot.timer".to_string(),
+                        "sudo systemctl start certbot.timer".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1040,7 +1048,7 @@ impl TemplateLibrary {
                     id: "step-4".to_string(),
                     name: "Test renewal".to_string(),
                     commands: vec![
-                        "certbot renew --dry-run".to_string(),
+                        "sudo certbot renew --dry-run".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1052,7 +1060,7 @@ impl TemplateLibrary {
                     id: "step-5".to_string(),
                     name: "Reload web server".to_string(),
                     commands: vec![
-                        "systemctl reload {{web_server}}".to_string(),
+                        "sudo systemctl reload {{web_server}}".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1066,9 +1074,9 @@ impl TemplateLibrary {
                     id: "rollback-1".to_string(),
                     name: "Revoke certificate".to_string(),
                     commands: vec![
-                        "certbot revoke --cert-name {{domain}} --non-interactive || true".to_string(),
-                        "certbot delete --cert-name {{domain}} --non-interactive || true".to_string(),
-                        "systemctl reload {{web_server}}".to_string(),
+                        "sudo certbot revoke --cert-name {{domain}} --non-interactive || true".to_string(),
+                        "sudo certbot delete --cert-name {{domain}} --non-interactive || true".to_string(),
+                        "sudo systemctl reload {{web_server}}".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1135,8 +1143,8 @@ impl TemplateLibrary {
                     id: "step-1".to_string(),
                     name: "Install UFW".to_string(),
                     commands: vec![
-                        "apt-get update".to_string(),
-                        "apt-get install -y ufw".to_string(),
+                        "sudo apt-get update".to_string(),
+                        "sudo apt-get install -y ufw".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1148,9 +1156,9 @@ impl TemplateLibrary {
                     id: "step-2".to_string(),
                     name: "Reset UFW to defaults".to_string(),
                     commands: vec![
-                        "ufw --force reset".to_string(),
-                        "ufw default deny incoming".to_string(),
-                        "ufw default allow outgoing".to_string(),
+                        "sudo ufw --force reset".to_string(),
+                        "sudo ufw default deny incoming".to_string(),
+                        "sudo ufw default allow outgoing".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1162,7 +1170,7 @@ impl TemplateLibrary {
                     id: "step-3".to_string(),
                     name: "Allow SSH".to_string(),
                     commands: vec![
-                        "ufw allow {{ssh_port}}/tcp comment 'SSH'".to_string(),
+                        "sudo ufw allow {{ssh_port}}/tcp comment 'SSH'".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1174,7 +1182,7 @@ impl TemplateLibrary {
                     id: "step-4".to_string(),
                     name: "Allow HTTP".to_string(),
                     commands: vec![
-                        "ufw allow 80/tcp comment 'HTTP'".to_string(),
+                        "sudo ufw allow 80/tcp comment 'HTTP'".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1186,7 +1194,7 @@ impl TemplateLibrary {
                     id: "step-5".to_string(),
                     name: "Allow HTTPS".to_string(),
                     commands: vec![
-                        "ufw allow 443/tcp comment 'HTTPS'".to_string(),
+                        "sudo ufw allow 443/tcp comment 'HTTPS'".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1198,7 +1206,7 @@ impl TemplateLibrary {
                     id: "step-6".to_string(),
                     name: "Allow additional ports".to_string(),
                     commands: vec![
-                        "for port in $(echo '{{additional_ports}}' | tr ',' ' '); do ufw allow $port; done".to_string(),
+                        "for port in $(echo '{{additional_ports}}' | tr ',' ' '); do sudo ufw allow $port; done".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1210,7 +1218,7 @@ impl TemplateLibrary {
                     id: "step-7".to_string(),
                     name: "Enable UFW".to_string(),
                     commands: vec![
-                        "ufw --force enable".to_string(),
+                        "sudo ufw --force enable".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1222,7 +1230,7 @@ impl TemplateLibrary {
                     id: "step-8".to_string(),
                     name: "Show status".to_string(),
                     commands: vec![
-                        "ufw status verbose".to_string(),
+                        "sudo ufw status verbose".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1236,8 +1244,8 @@ impl TemplateLibrary {
                     id: "rollback-1".to_string(),
                     name: "Disable UFW".to_string(),
                     commands: vec![
-                        "ufw --force disable".to_string(),
-                        "ufw --force reset".to_string(),
+                        "sudo ufw --force disable".to_string(),
+                        "sudo ufw --force reset".to_string(),
                     ],
                     working_dir: None,
                     env: HashMap::new(),
@@ -1247,6 +1255,861 @@ impl TemplateLibrary {
                 },
             ],
             tags: vec!["firewall".to_string(), "security".to_string(), "ufw".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Install Nginx template
+    fn nginx_install_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-nginx-install".to_string(),
+            name: "Install Nginx".to_string(),
+            description: "Install and configure Nginx web server on Ubuntu/Debian".to_string(),
+            variables: vec![
+                Variable {
+                    name: "worker_processes".to_string(),
+                    description: "Number of worker processes (auto for automatic)".to_string(),
+                    default_value: Some("auto".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "worker_connections".to_string(),
+                    description: "Max connections per worker".to_string(),
+                    default_value: Some("1024".to_string()),
+                    required: false,
+                    var_type: VariableType::Number,
+                },
+                Variable {
+                    name: "client_max_body_size".to_string(),
+                    description: "Max upload size".to_string(),
+                    default_value: Some("64M".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Update package list".to_string(),
+                    commands: vec![
+                        "sudo apt-get update".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Install Nginx".to_string(),
+                    commands: vec![
+                        "sudo apt-get install -y nginx".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Backup default config".to_string(),
+                    commands: vec![
+                        "sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.backup".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Configure Nginx".to_string(),
+                    commands: vec![
+                        "sudo sed -i 's/worker_processes.*/worker_processes {{worker_processes}};/' /etc/nginx/nginx.conf".to_string(),
+                        "sudo sed -i 's/worker_connections.*/worker_connections {{worker_connections}};/' /etc/nginx/nginx.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Set client_max_body_size".to_string(),
+                    commands: vec![
+                        "sudo grep -q 'client_max_body_size' /etc/nginx/nginx.conf || sudo sed -i '/http {/a\\    client_max_body_size {{client_max_body_size}};' /etc/nginx/nginx.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-6".to_string(),
+                    name: "Test Nginx config".to_string(),
+                    commands: vec![
+                        "sudo nginx -t".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-7".to_string(),
+                    name: "Enable and start Nginx".to_string(),
+                    commands: vec![
+                        "sudo systemctl enable nginx".to_string(),
+                        "sudo systemctl restart nginx".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-8".to_string(),
+                    name: "Verify Nginx status".to_string(),
+                    commands: vec![
+                        "systemctl status nginx --no-pager".to_string(),
+                        "nginx -v".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![
+                Step {
+                    id: "rollback-1".to_string(),
+                    name: "Restore config and restart".to_string(),
+                    commands: vec![
+                        "cp /etc/nginx/nginx.conf.backup /etc/nginx/nginx.conf".to_string(),
+                        "systemctl restart nginx".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+            ],
+            tags: vec!["nginx".to_string(), "webserver".to_string(), "install".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Nginx Virtual Host template
+    fn nginx_vhost_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-nginx-vhost".to_string(),
+            name: "Nginx Virtual Host".to_string(),
+            description: "Create Nginx virtual host configuration for a domain".to_string(),
+            variables: vec![
+                Variable {
+                    name: "domain".to_string(),
+                    description: "Domain name (e.g., example.com)".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "root_path".to_string(),
+                    description: "Document root path".to_string(),
+                    default_value: Some("/var/www/html".to_string()),
+                    required: true,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "php_enabled".to_string(),
+                    description: "Enable PHP-FPM support".to_string(),
+                    default_value: Some("false".to_string()),
+                    required: false,
+                    var_type: VariableType::Boolean,
+                },
+                Variable {
+                    name: "php_version".to_string(),
+                    description: "PHP version (e.g., 8.2)".to_string(),
+                    default_value: Some("8.2".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "proxy_pass".to_string(),
+                    description: "Proxy pass URL (leave empty for static)".to_string(),
+                    default_value: None,
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Create document root".to_string(),
+                    commands: vec![
+                        "mkdir -p {{root_path}}".to_string(),
+                        "chown -R www-data:www-data {{root_path}}".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Create virtual host config".to_string(),
+                    commands: vec![
+                        r#"cat > /etc/nginx/sites-available/{{domain}} << 'EOF'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{domain}} www.{{domain}};
+    root {{root_path}};
+    index index.html index.htm index.php;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+
+    access_log /var/log/nginx/{{domain}}.access.log;
+    error_log /var/log/nginx/{{domain}}.error.log;
+}
+EOF"#.to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Add PHP-FPM config".to_string(),
+                    commands: vec![
+                        r#"sed -i '/location \/ {/a\    location ~ \\.php$ {\n        fastcgi_pass unix:/var/run/php/php{{php_version}}-fpm.sock;\n        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;\n        include fastcgi_params;\n    }' /etc/nginx/sites-available/{{domain}}"#.to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: Some("test \"{{php_enabled}}\" = \"true\"".to_string()),
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Enable site".to_string(),
+                    commands: vec![
+                        "ln -sf /etc/nginx/sites-available/{{domain}} /etc/nginx/sites-enabled/".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Test and reload Nginx".to_string(),
+                    commands: vec![
+                        "nginx -t".to_string(),
+                        "systemctl reload nginx".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+            ],
+            rollback_steps: vec![
+                Step {
+                    id: "rollback-1".to_string(),
+                    name: "Remove virtual host".to_string(),
+                    commands: vec![
+                        "rm -f /etc/nginx/sites-enabled/{{domain}}".to_string(),
+                        "rm -f /etc/nginx/sites-available/{{domain}}".to_string(),
+                        "systemctl reload nginx".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+            ],
+            tags: vec!["nginx".to_string(), "vhost".to_string(), "domain".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Install MySQL template
+    fn mysql_install_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-mysql-install".to_string(),
+            name: "Install MySQL".to_string(),
+            description: "Install and secure MySQL server on Ubuntu/Debian".to_string(),
+            variables: vec![
+                Variable {
+                    name: "root_password".to_string(),
+                    description: "MySQL root password".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::Secret,
+                },
+                Variable {
+                    name: "bind_address".to_string(),
+                    description: "Bind address (127.0.0.1 for local only)".to_string(),
+                    default_value: Some("127.0.0.1".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "max_connections".to_string(),
+                    description: "Maximum connections".to_string(),
+                    default_value: Some("150".to_string()),
+                    required: false,
+                    var_type: VariableType::Number,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Update package list".to_string(),
+                    commands: vec![
+                        "sudo apt-get update".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Install MySQL Server".to_string(),
+                    commands: vec![
+                        "sudo apt-get install -y mysql-server".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(600),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Start MySQL service".to_string(),
+                    commands: vec![
+                        "sudo systemctl start mysql".to_string(),
+                        "sudo systemctl enable mysql".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Set root password".to_string(),
+                    commands: vec![
+                        "sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{root_password}}';\"".to_string(),
+                        "sudo mysql -e \"FLUSH PRIVILEGES;\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Secure MySQL installation".to_string(),
+                    commands: vec![
+                        "sudo mysql -u root -p{{root_password}} -e \"DELETE FROM mysql.user WHERE User='';\"".to_string(),
+                        "sudo mysql -u root -p{{root_password}} -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');\"".to_string(),
+                        "sudo mysql -u root -p{{root_password}} -e \"DROP DATABASE IF EXISTS test;\"".to_string(),
+                        "sudo mysql -u root -p{{root_password}} -e \"DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';\"".to_string(),
+                        "sudo mysql -u root -p{{root_password}} -e \"FLUSH PRIVILEGES;\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(120),
+                },
+                Step {
+                    id: "step-6".to_string(),
+                    name: "Configure MySQL".to_string(),
+                    commands: vec![
+                        "sudo sed -i 's/bind-address.*/bind-address = {{bind_address}}/' /etc/mysql/mysql.conf.d/mysqld.cnf".to_string(),
+                        "echo 'max_connections = {{max_connections}}' | sudo tee -a /etc/mysql/mysql.conf.d/mysqld.cnf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-7".to_string(),
+                    name: "Restart MySQL".to_string(),
+                    commands: vec![
+                        "sudo systemctl restart mysql".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-8".to_string(),
+                    name: "Verify MySQL".to_string(),
+                    commands: vec![
+                        "sudo systemctl status mysql --no-pager".to_string(),
+                        "sudo mysql -u root -p{{root_password}} -e \"SELECT VERSION();\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![],
+            tags: vec!["mysql".to_string(), "database".to_string(), "install".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// MySQL Create Database template
+    fn mysql_database_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-mysql-database".to_string(),
+            name: "MySQL Create Database".to_string(),
+            description: "Create MySQL database and user with privileges".to_string(),
+            variables: vec![
+                Variable {
+                    name: "root_password".to_string(),
+                    description: "MySQL root password".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::Secret,
+                },
+                Variable {
+                    name: "db_name".to_string(),
+                    description: "Database name".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "db_user".to_string(),
+                    description: "Database user".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "db_password".to_string(),
+                    description: "Database user password".to_string(),
+                    default_value: None,
+                    required: true,
+                    var_type: VariableType::Secret,
+                },
+                Variable {
+                    name: "db_host".to_string(),
+                    description: "Allowed host for user".to_string(),
+                    default_value: Some("localhost".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "charset".to_string(),
+                    description: "Database charset".to_string(),
+                    default_value: Some("utf8mb4".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Create database".to_string(),
+                    commands: vec![
+                        "mysql -u root -p{{root_password}} -e \"CREATE DATABASE IF NOT EXISTS {{db_name}} CHARACTER SET {{charset}} COLLATE {{charset}}_unicode_ci;\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Create user".to_string(),
+                    commands: vec![
+                        "mysql -u root -p{{root_password}} -e \"CREATE USER IF NOT EXISTS '{{db_user}}'@'{{db_host}}' IDENTIFIED BY '{{db_password}}';\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Grant privileges".to_string(),
+                    commands: vec![
+                        "mysql -u root -p{{root_password}} -e \"GRANT ALL PRIVILEGES ON {{db_name}}.* TO '{{db_user}}'@'{{db_host}}';\"".to_string(),
+                        "mysql -u root -p{{root_password}} -e \"FLUSH PRIVILEGES;\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Verify database".to_string(),
+                    commands: vec![
+                        "mysql -u {{db_user}} -p{{db_password}} -e \"SHOW DATABASES;\" | grep {{db_name}}".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![
+                Step {
+                    id: "rollback-1".to_string(),
+                    name: "Drop database and user".to_string(),
+                    commands: vec![
+                        "mysql -u root -p{{root_password}} -e \"DROP DATABASE IF EXISTS {{db_name}};\"".to_string(),
+                        "mysql -u root -p{{root_password}} -e \"DROP USER IF EXISTS '{{db_user}}'@'{{db_host}}';\"".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+            ],
+            tags: vec!["mysql".to_string(), "database".to_string(), "create".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Install Redis template
+    fn redis_install_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-redis-install".to_string(),
+            name: "Install Redis".to_string(),
+            description: "Install and configure Redis server on Ubuntu/Debian".to_string(),
+            variables: vec![
+                Variable {
+                    name: "redis_password".to_string(),
+                    description: "Redis password (leave empty for no auth)".to_string(),
+                    default_value: None,
+                    required: false,
+                    var_type: VariableType::Secret,
+                },
+                Variable {
+                    name: "bind_address".to_string(),
+                    description: "Bind address".to_string(),
+                    default_value: Some("127.0.0.1".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "port".to_string(),
+                    description: "Redis port".to_string(),
+                    default_value: Some("6379".to_string()),
+                    required: false,
+                    var_type: VariableType::Number,
+                },
+                Variable {
+                    name: "maxmemory".to_string(),
+                    description: "Max memory (e.g., 256mb)".to_string(),
+                    default_value: Some("256mb".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Update package list".to_string(),
+                    commands: vec![
+                        "sudo apt-get update".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Install Redis".to_string(),
+                    commands: vec![
+                        "sudo apt-get install -y redis-server".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Backup config".to_string(),
+                    commands: vec![
+                        "sudo cp /etc/redis/redis.conf /etc/redis/redis.conf.backup".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Configure Redis".to_string(),
+                    commands: vec![
+                        "sudo sed -i 's/^bind .*/bind {{bind_address}}/' /etc/redis/redis.conf".to_string(),
+                        "sudo sed -i 's/^port .*/port {{port}}/' /etc/redis/redis.conf".to_string(),
+                        "sudo sed -i 's/^# maxmemory .*/maxmemory {{maxmemory}}/' /etc/redis/redis.conf".to_string(),
+                        "sudo sed -i 's/^maxmemory-policy .*/maxmemory-policy allkeys-lru/' /etc/redis/redis.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Set Redis password".to_string(),
+                    commands: vec![
+                        "sudo sed -i 's/^# requirepass .*/requirepass {{redis_password}}/' /etc/redis/redis.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: Some("test -n \"{{redis_password}}\"".to_string()),
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-6".to_string(),
+                    name: "Enable supervised systemd".to_string(),
+                    commands: vec![
+                        "sudo sed -i 's/^supervised .*/supervised systemd/' /etc/redis/redis.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-7".to_string(),
+                    name: "Restart Redis".to_string(),
+                    commands: vec![
+                        "sudo systemctl restart redis-server".to_string(),
+                        "sudo systemctl enable redis-server".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-8".to_string(),
+                    name: "Verify Redis".to_string(),
+                    commands: vec![
+                        "sudo systemctl status redis-server --no-pager".to_string(),
+                        "redis-cli ping".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![
+                Step {
+                    id: "rollback-1".to_string(),
+                    name: "Restore config".to_string(),
+                    commands: vec![
+                        "sudo cp /etc/redis/redis.conf.backup /etc/redis/redis.conf".to_string(),
+                        "systemctl restart redis-server".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+            ],
+            tags: vec!["redis".to_string(), "cache".to_string(), "install".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Redis Configuration template
+    fn redis_config_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-redis-config".to_string(),
+            name: "Redis Configuration".to_string(),
+            description: "Configure Redis settings and persistence".to_string(),
+            variables: vec![
+                Variable {
+                    name: "maxmemory".to_string(),
+                    description: "Max memory limit".to_string(),
+                    default_value: Some("512mb".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "maxmemory_policy".to_string(),
+                    description: "Eviction policy".to_string(),
+                    default_value: Some("allkeys-lru".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "appendonly".to_string(),
+                    description: "Enable AOF persistence".to_string(),
+                    default_value: Some("yes".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "save_intervals".to_string(),
+                    description: "RDB save intervals (e.g., 900 1 300 10)".to_string(),
+                    default_value: Some("900 1 300 10 60 10000".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Backup current config".to_string(),
+                    commands: vec![
+                        "cp /etc/redis/redis.conf /etc/redis/redis.conf.$(date +%Y%m%d_%H%M%S)".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Configure memory settings".to_string(),
+                    commands: vec![
+                        "sed -i 's/^maxmemory .*/maxmemory {{maxmemory}}/' /etc/redis/redis.conf".to_string(),
+                        "sed -i 's/^maxmemory-policy .*/maxmemory-policy {{maxmemory_policy}}/' /etc/redis/redis.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Configure persistence".to_string(),
+                    commands: vec![
+                        "sed -i 's/^appendonly .*/appendonly {{appendonly}}/' /etc/redis/redis.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Test config".to_string(),
+                    commands: vec![
+                        "redis-server --test-memory 1".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Restart Redis".to_string(),
+                    commands: vec![
+                        "systemctl restart redis-server".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Rollback,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-6".to_string(),
+                    name: "Verify configuration".to_string(),
+                    commands: vec![
+                        "redis-cli CONFIG GET maxmemory".to_string(),
+                        "redis-cli CONFIG GET maxmemory-policy".to_string(),
+                        "redis-cli INFO memory | head -10".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![],
+            tags: vec!["redis".to_string(), "config".to_string(), "cache".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
