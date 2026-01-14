@@ -3,28 +3,25 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
-import { terminalApi, eventApi } from "../../lib/tauri";
+import { localTerminalApi, eventApi } from "../../lib/tauri";
 import { useAppStore } from "../../store";
 
-interface TerminalViewProps {
+interface LocalTerminalViewProps {
   sessionId: string;
   isActive: boolean;
   alwaysVisible?: boolean;
+  onResize?: (cols: number, rows: number) => void;
 }
 
-// Global map to track which sessions have active listeners
-const activeListeners = new Map<string, { unlisten: () => void; terminal: Terminal }>();
-
-export function TerminalView({ sessionId, isActive, alwaysVisible = false }: TerminalViewProps) {
+export function LocalTerminalView({ sessionId, isActive, alwaysVisible = false, onResize }: LocalTerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const mountedRef = useRef(false);
+  const unlistenRef = useRef<(() => void) | null>(null);
+  const isInitializedRef = useRef(false);
   
   const theme = useAppStore((state) => state.theme);
-  const resizeTerminal = useAppStore((state) => state.resizeTerminal);
 
-  // Get theme colors
   const getThemeColors = useCallback(() => {
     const isDark = theme === "dark" || 
       (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -54,21 +51,9 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
     };
   }, [theme]);
 
-  // Initialize terminal
   useEffect(() => {
-    if (!containerRef.current) return;
-    
-    // Prevent double initialization in StrictMode
-    if (mountedRef.current) return;
-    mountedRef.current = true;
-
-    // Clean up any existing listener for this session
-    const existing = activeListeners.get(sessionId);
-    if (existing) {
-      existing.unlisten();
-      existing.terminal.dispose();
-      activeListeners.delete(sessionId);
-    }
+    if (!containerRef.current || isInitializedRef.current) return;
+    isInitializedRef.current = true;
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -87,7 +72,11 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
     terminal.loadAddon(webLinksAddon);
 
     terminal.open(containerRef.current);
-    fitAddon.fit();
+    
+    // Small delay to ensure container is properly sized
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+    });
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -98,7 +87,7 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
       const text = e.clipboardData?.getData('text');
       if (text) {
         const bytes = Array.from(new TextEncoder().encode(text));
-        terminalApi.write(sessionId, bytes).catch(console.error);
+        localTerminalApi.write(sessionId, bytes).catch(console.error);
       }
     };
     containerRef.current.addEventListener('paste', handlePaste);
@@ -135,7 +124,7 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
         navigator.clipboard.readText().then((text) => {
           if (text) {
             const bytes = Array.from(new TextEncoder().encode(text));
-            terminalApi.write(sessionId, bytes).catch(console.error);
+            localTerminalApi.write(sessionId, bytes).catch(console.error);
           }
         });
         return false;
@@ -144,62 +133,74 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
     });
 
     // Handle terminal input
-    terminal.onData((data) => {
+    const dataDisposable = terminal.onData((data) => {
       const bytes = Array.from(new TextEncoder().encode(data));
-      terminalApi.write(sessionId, bytes).catch(console.error);
+      localTerminalApi.write(sessionId, bytes).catch(console.error);
     });
 
     // Handle terminal resize
-    terminal.onResize(({ cols, rows }) => {
-      resizeTerminal(sessionId, cols, rows);
+    const resizeDisposable = terminal.onResize(({ cols, rows }) => {
+      localTerminalApi.resize(sessionId, cols, rows).catch(console.error);
+      onResize?.(cols, rows);
     });
 
-    // Start streaming terminal output
-    terminalApi.startStream(sessionId).catch(console.error);
+    // Setup async initialization
+    const initAsync = async () => {
+      try {
+        // Listen for terminal output events first
+        const unlisten = await eventApi.onLocalTerminalOutput((payload) => {
+          if (payload.session_id === sessionId && terminalRef.current) {
+            const text = new TextDecoder().decode(new Uint8Array(payload.data));
+            terminalRef.current.write(text);
+          }
+        });
+        unlistenRef.current = unlisten;
 
-    // Listen for terminal output events
-    eventApi.onTerminalOutput((payload) => {
-      if (payload.session_id === sessionId && terminalRef.current) {
-        const text = new TextDecoder().decode(new Uint8Array(payload.data));
-        terminalRef.current.write(text);
+        // Then start streaming terminal output
+        await localTerminalApi.startStream(sessionId);
+
+        // Initial resize after stream is ready
+        const { cols, rows } = terminal;
+        await localTerminalApi.resize(sessionId, cols, rows);
+      } catch (error) {
+        console.error("Failed to initialize local terminal:", error);
       }
-    }).then((unlisten) => {
-      // Store the listener so we can clean it up
-      activeListeners.set(sessionId, { unlisten, terminal });
-    });
+    };
 
-    // Initial resize notification
-    const { cols, rows } = terminal;
-    resizeTerminal(sessionId, cols, rows);
+    initAsync();
 
     // Store container ref for cleanup
     const container = containerRef.current;
 
     return () => {
-      mountedRef.current = false;
+      isInitializedRef.current = false;
       
       // Cleanup paste listener
       container?.removeEventListener('paste', handlePaste);
       
-      const listener = activeListeners.get(sessionId);
-      if (listener) {
-        listener.unlisten();
-        activeListeners.delete(sessionId);
+      // Cleanup event listener
+      if (unlistenRef.current) {
+        unlistenRef.current();
+        unlistenRef.current = null;
       }
+      
+      // Dispose terminal handlers
+      dataDisposable.dispose();
+      resizeDisposable.dispose();
+      
+      // Dispose terminal
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
     };
-  }, [sessionId, getThemeColors, resizeTerminal]);
+  }, [sessionId, getThemeColors, onResize]);
 
-  // Update theme when it changes
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.options.theme = getThemeColors();
     }
   }, [theme, getThemeColors]);
 
-  // Handle resize when active state changes or window resizes
   useEffect(() => {
     if (!fitAddonRef.current) return;
     // In alwaysVisible mode, always handle resize; otherwise only when active
@@ -211,13 +212,10 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
       }
     };
 
-    // Fit on activation
     handleResize();
 
-    // Listen for window resize
     window.addEventListener("resize", handleResize);
     
-    // Use ResizeObserver for container size changes
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
@@ -229,7 +227,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false }: Ter
     };
   }, [isActive, alwaysVisible]);
 
-  // Focus terminal when active
   useEffect(() => {
     if (isActive && terminalRef.current) {
       terminalRef.current.focus();

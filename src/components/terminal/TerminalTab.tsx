@@ -1,4 +1,4 @@
-import { X, Terminal } from "lucide-react";
+import { X, Terminal, Monitor } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { TerminalSession } from "../../store";
 
@@ -7,13 +7,16 @@ interface TerminalTabProps {
   isActive: boolean;
   onSelect: () => void;
   onClose: () => void;
+  isLocal?: boolean;
 }
 
-export function TerminalTab({ session, isActive, onSelect, onClose }: TerminalTabProps) {
+export function TerminalTab({ session, isActive, onSelect, onClose, isLocal }: TerminalTabProps) {
   const handleClose = (e: React.MouseEvent) => {
     e.stopPropagation();
     onClose();
   };
+
+  const Icon = isLocal ? Monitor : Terminal;
 
   return (
     <div
@@ -25,7 +28,7 @@ export function TerminalTab({ session, isActive, onSelect, onClose }: TerminalTa
       )}
       onClick={onSelect}
     >
-      <Terminal className="w-4 h-4 shrink-0" />
+      <Icon className="w-4 h-4 shrink-0" />
       <span className="text-sm truncate max-w-[120px]">{session.serverName}</span>
       <button
         onClick={handleClose}

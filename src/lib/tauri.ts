@@ -223,6 +223,18 @@ export const terminalApi = {
     invoke<string[]>("list_terminal_sessions"),
 };
 
+// Local Terminal API
+export const localTerminalApi = {
+  createSession: () => invoke<string>("create_local_terminal_session"),
+  closeSession: (sessionId: string) => invoke<void>("close_local_terminal_session", { sessionId }),
+  resize: (sessionId: string, cols: number, rows: number) =>
+    invoke<void>("resize_local_terminal", { sessionId, cols, rows }),
+  write: (sessionId: string, data: number[]) =>
+    invoke<void>("write_local_terminal", { sessionId, data }),
+  startStream: (sessionId: string) =>
+    invoke<void>("start_local_terminal_stream", { sessionId }),
+};
+
 // Command Execution API
 export const commandApi = {
   execute: (serverId: string, command: string) =>
@@ -247,6 +259,9 @@ export const credentialApi = {
 export const eventApi = {
   onTerminalOutput: (callback: (payload: TerminalOutputPayload) => void): Promise<UnlistenFn> =>
     listen<TerminalOutputPayload>("terminal-output", (event) => callback(event.payload)),
+  
+  onLocalTerminalOutput: (callback: (payload: TerminalOutputPayload) => void): Promise<UnlistenFn> =>
+    listen<TerminalOutputPayload>("local-terminal-output", (event) => callback(event.payload)),
   
   onConnectionStatusChanged: (callback: (payload: ConnectionStatusPayload) => void): Promise<UnlistenFn> =>
     listen<ConnectionStatusPayload>("connection-status-changed", (event) => callback(event.payload)),
@@ -438,6 +453,8 @@ export interface ExecutionConfig {
   dry_run?: boolean;
   /** Optional sudo password for commands requiring elevated privileges */
   sudo_password?: string;
+  /** Enable deep validation in dry-run (SSH connectivity, command availability) */
+  validate_prerequisites?: boolean;
 }
 
 export interface DryRunStep {
@@ -449,18 +466,26 @@ export interface DryRunStep {
   condition_result: boolean | null;
   will_execute: boolean;
   skip_reason: string | null;
+  /** Warnings for this step (command not found, directory missing, etc.) */
+  warnings: string[];
 }
 
 export interface DryRunServer {
   server_id: string;
   server_name: string;
   steps: DryRunStep[];
+  /** Server-level warnings (SSH issues, etc.) */
+  warnings: string[];
+  /** SSH connectivity status (null if not validated) */
+  ssh_reachable: boolean | null;
 }
 
 export interface DryRunResult {
   script_name: string;
   servers: DryRunServer[];
   total_steps: number;
+  /** Whether deep validation was performed */
+  validated: boolean;
 }
 
 export interface RollbackInfo {

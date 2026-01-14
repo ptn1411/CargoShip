@@ -1,20 +1,24 @@
+pub mod batch;
 pub mod cache;
 pub mod credentials;
 pub mod db;
 pub mod deployments;
 pub mod error;
 pub mod files;
+pub mod groups;
 pub mod scripts;
 pub mod server;
 pub mod ssh;
 pub mod sync;
 pub mod terminal;
 
+use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthCheckSummary};
 use cache::CacheManager;
 use credentials::CredentialStore;
 use db::init_database;
 use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
 use files::{Breadcrumb, FileBrowser, FileContent, FileManager, path_to_breadcrumbs};
+use groups::{GroupManager, ServerGroup, CreateGroupInput, UpdateGroupInput};
 use scripts::{ScriptManager, DeploymentScript, CreateScriptInput, UpdateScriptInput, ValidationResult, TemplateLibrary, TemplateInfo, RollbackManager, RollbackInfo, ScriptEngine, ExecutionConfig, DryRunResult};
 use server::{CreateServerInput, Server, ServerManager, UpdateServerInput};
 use ssh::{CommandOutput, ConnectionStatus, ServerInfo, SshClient};
@@ -30,11 +34,13 @@ use tokio::sync::Mutex;
 
 pub struct AppState {
     pub server_manager: Arc<Mutex<ServerManager>>,
+    pub group_manager: Arc<Mutex<GroupManager>>,
     pub script_manager: Arc<Mutex<ScriptManager>>,
     pub template_library: Arc<TemplateLibrary>,
     pub deployment_logger: Arc<DeploymentLogger>,
     pub rollback_manager: Arc<RollbackManager>,
     pub script_engine: Arc<ScriptEngine>,
+    pub batch_executor: Arc<BatchExecutor>,
     pub ssh_client: Arc<SshClient>,
     pub file_browser: Arc<FileBrowser>,
     pub file_manager: Arc<FileManager>,
@@ -42,8 +48,10 @@ pub struct AppState {
     pub sync_engine: Arc<SyncEngine>,
     pub conflict_resolver: Arc<ConflictResolver>,
     pub terminal_manager: Arc<TerminalManager>,
+    pub local_terminal_manager: Arc<terminal::LocalTerminalManager>,
     pub credential_store: Arc<CredentialStore>,
     pub active_streams: Arc<Mutex<HashSet<String>>>,
+    pub active_local_streams: Arc<Mutex<HashSet<String>>>,
 }
 
 // Event Payloads for Tauri Events
@@ -110,6 +118,194 @@ async fn delete_server(
         .delete_server(&id)
         .await
         .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Server Group Commands (Phase 4 - Task 2)
+// ============================================================================
+
+/// Create a new server group
+/// Requirements: 1.1
+#[tauri::command]
+async fn create_group(
+    state: tauri::State<'_, AppState>,
+    input: CreateGroupInput,
+) -> std::result::Result<ServerGroup, String> {
+    state.group_manager.lock().await
+        .create_group(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all server groups
+/// Requirements: 1.2
+#[tauri::command]
+async fn list_groups(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<ServerGroup>, String> {
+    state.group_manager.lock().await
+        .list_groups()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get a server group by ID
+/// Requirements: 1.2
+#[tauri::command]
+async fn get_group(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<ServerGroup, String> {
+    state.group_manager.lock().await
+        .get_group(&id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Group not found: {}", id))
+}
+
+/// Update a server group
+/// Requirements: 1.3
+#[tauri::command]
+async fn update_group(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: UpdateGroupInput,
+) -> std::result::Result<ServerGroup, String> {
+    state.group_manager.lock().await
+        .update_group(&id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a server group
+/// Requirements: 1.4
+#[tauri::command]
+async fn delete_group(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.group_manager.lock().await
+        .delete_group(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Add a server to a group
+/// Requirements: 1.3
+#[tauri::command]
+async fn add_server_to_group(
+    state: tauri::State<'_, AppState>,
+    group_id: String,
+    server_id: String,
+) -> std::result::Result<(), String> {
+    state.group_manager.lock().await
+        .add_server_to_group(&group_id, &server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Remove a server from a group
+/// Requirements: 1.3
+#[tauri::command]
+async fn remove_server_from_group(
+    state: tauri::State<'_, AppState>,
+    group_id: String,
+    server_id: String,
+) -> std::result::Result<(), String> {
+    state.group_manager.lock().await
+        .remove_server_from_group(&group_id, &server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get all servers in a group
+/// Requirements: 1.5
+#[tauri::command]
+async fn get_servers_in_group(
+    state: tauri::State<'_, AppState>,
+    group_id: String,
+) -> std::result::Result<Vec<Server>, String> {
+    state.group_manager.lock().await
+        .get_servers_in_group(&group_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Batch Operation Commands (Phase 4 - Task 3)
+// ============================================================================
+
+/// Execute a command on multiple servers
+/// Requirements: 2.2, 2.5, 2.6
+#[tauri::command]
+async fn batch_execute_command(
+    state: tauri::State<'_, AppState>,
+    server_ids: Vec<String>,
+    command: String,
+) -> std::result::Result<Vec<BatchResult>, String> {
+    state.batch_executor
+        .execute_command(&server_ids, &command)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Execute a command on multiple servers with configurable concurrency
+/// Requirements: 2.2, 2.5, 2.6
+#[tauri::command]
+async fn batch_execute_parallel(
+    state: tauri::State<'_, AppState>,
+    server_ids: Vec<String>,
+    command: String,
+    max_parallel: usize,
+) -> std::result::Result<Vec<BatchResult>, String> {
+    state.batch_executor
+        .execute_parallel(&server_ids, &command, max_parallel)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Perform health check on multiple servers
+/// Requirements: 2.4
+#[tauri::command]
+async fn batch_health_check(
+    state: tauri::State<'_, AppState>,
+    server_ids: Vec<String>,
+) -> std::result::Result<Vec<HealthCheckResult>, String> {
+    state.batch_executor
+        .health_check(&server_ids)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Execute command and return summary with aggregated results
+/// Requirements: 2.5
+#[tauri::command]
+async fn batch_execute_with_summary(
+    state: tauri::State<'_, AppState>,
+    server_ids: Vec<String>,
+    command: String,
+) -> std::result::Result<BatchSummary, String> {
+    let results = state.batch_executor
+        .execute_command(&server_ids, &command)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(BatchSummary::from_results(results))
+}
+
+/// Health check and return summary with aggregated results
+/// Requirements: 2.4, 2.5
+#[tauri::command]
+async fn batch_health_check_with_summary(
+    state: tauri::State<'_, AppState>,
+    server_ids: Vec<String>,
+) -> std::result::Result<HealthCheckSummary, String> {
+    let results = state.batch_executor
+        .health_check(&server_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(HealthCheckSummary::from_results(results))
 }
 
 #[tauri::command]
@@ -334,6 +530,113 @@ async fn list_terminal_sessions(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
     Ok(state.terminal_manager.active_session_ids())
+}
+
+// ============================================================================
+// Local Terminal Commands
+// ============================================================================
+
+#[tauri::command]
+async fn create_local_terminal_session(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    state.local_terminal_manager.create_session(80, 24)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn close_local_terminal_session(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> std::result::Result<(), String> {
+    // Remove from active streams
+    {
+        let mut streams = state.active_local_streams.lock().await;
+        streams.remove(&session_id);
+    }
+    state.local_terminal_manager.close_session(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn resize_local_terminal(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> std::result::Result<(), String> {
+    state.local_terminal_manager.resize_session(&session_id, cols, rows)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn write_local_terminal(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    data: Vec<u8>,
+) -> std::result::Result<(), String> {
+    state.local_terminal_manager.write_to_session(&session_id, &data)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn start_local_terminal_stream(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+) -> std::result::Result<(), String> {
+    // Check if stream already exists
+    {
+        let mut active_streams = state.active_local_streams.lock().await;
+        if active_streams.contains(&session_id) {
+            return Ok(());
+        }
+        active_streams.insert(session_id.clone());
+    }
+
+    // Get the reader Arc upfront
+    let reader = state.local_terminal_manager.get_reader(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+
+    let local_terminal_manager = state.local_terminal_manager.clone();
+    let active_streams = state.active_local_streams.clone();
+    let session_id_clone = session_id.clone();
+    
+    // Spawn background task to poll terminal output
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if !local_terminal_manager.has_session(&session_id_clone) {
+                break;
+            }
+            
+            let reader_clone = reader.clone();
+            
+            // Use spawn_blocking for the blocking read operation
+            let read_result = tokio::task::spawn_blocking(move || {
+                reader_clone.read()
+            }).await;
+            
+            match read_result {
+                Ok(Ok(data)) if !data.is_empty() => {
+                    let payload = TerminalOutputPayload {
+                        session_id: session_id_clone.clone(),
+                        data,
+                    };
+                    let _ = app_handle.emit("local-terminal-output", payload);
+                }
+                Ok(Ok(_)) => {
+                    // No data, small delay before next poll
+                    tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+                }
+                Ok(Err(_)) | Err(_) => break,
+            }
+        }
+        
+        let mut streams = active_streams.lock().await;
+        streams.remove(&session_id_clone);
+    });
+    
+    Ok(())
 }
 
 #[tauri::command]
@@ -1123,6 +1426,9 @@ pub fn run() {
                 let server_manager = Arc::new(Mutex::new(
                     ServerManager::new(db_pool.clone(), credential_store.clone())
                 ));
+                let group_manager = Arc::new(Mutex::new(
+                    GroupManager::new(db_pool.clone())
+                ));
                 let script_manager = Arc::new(Mutex::new(
                     ScriptManager::new(db_pool.clone())
                 ));
@@ -1173,15 +1479,26 @@ pub fn run() {
 
                 // Initialize conflict resolver
                 let conflict_resolver = Arc::new(ConflictResolver::new(sync_engine.clone()));
+                
+                // Initialize local terminal manager
+                let local_terminal_manager = Arc::new(terminal::LocalTerminalManager::new());
+
+                // Initialize batch executor (Phase 4 - Task 3)
+                let batch_executor = Arc::new(BatchExecutor::new(
+                    ssh_client.clone(),
+                    server_manager.clone(),
+                ));
 
                 // Create app state
                 let state = AppState {
                     server_manager,
+                    group_manager,
                     script_manager,
                     template_library,
                     deployment_logger,
                     rollback_manager,
                     script_engine,
+                    batch_executor,
                     ssh_client,
                     file_browser,
                     file_manager,
@@ -1189,8 +1506,10 @@ pub fn run() {
                     sync_engine,
                     conflict_resolver,
                     terminal_manager,
+                    local_terminal_manager,
                     credential_store,
                     active_streams: Arc::new(Mutex::new(HashSet::new())),
+                    active_local_streams: Arc::new(Mutex::new(HashSet::new())),
                 };
 
                 app_handle.manage(state);
@@ -1207,6 +1526,21 @@ pub fn run() {
             test_connection,
             get_server_info,
             check_duplicate_server,
+            // Server group commands (Phase 4 - Task 2)
+            create_group,
+            list_groups,
+            get_group,
+            update_group,
+            delete_group,
+            add_server_to_group,
+            remove_server_from_group,
+            get_servers_in_group,
+            // Batch operation commands (Phase 4 - Task 3)
+            batch_execute_command,
+            batch_execute_parallel,
+            batch_health_check,
+            batch_execute_with_summary,
+            batch_health_check_with_summary,
             // File browser commands
             list_remote_files,
             search_files,
@@ -1221,6 +1555,12 @@ pub fn run() {
             start_terminal_stream,
             get_terminal_session_count,
             list_terminal_sessions,
+            // Local terminal commands
+            create_local_terminal_session,
+            close_local_terminal_session,
+            resize_local_terminal,
+            write_local_terminal,
+            start_local_terminal_stream,
             // Command execution
             execute_command,
             execute_command_stream,

@@ -22,12 +22,12 @@ export function FileEditor() {
   const conflicts = useConflicts();
   const isSaving = useIsSavingFile();
   const settings = useEditorSettings();
-  const { updateFileContent, saveFile, saveAllFiles, checkFileConflict, resolveConflict, clearConflict } = useEditorActions();
+  const { updateFileContent, saveFile, saveAllFiles, checkFileConflict, clearConflict } = useEditorActions();
   
   // Auto-save timer ref
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Conflict check timer ref
-  const conflictCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const conflictCheckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Handle content change
   const handleContentChange = useCallback((content: string) => {
@@ -129,13 +129,6 @@ export function FileEditor() {
   // Get conflict for active file
   const activeConflict = activeFile ? conflicts[activeFile.id] : null;
 
-  // Handle conflict resolution
-  const handleResolveConflict = useCallback(async (resolution: "keep_local" | "use_remote") => {
-    if (activeFile) {
-      await resolveConflict(activeFile.id, resolution);
-    }
-  }, [activeFile, resolveConflict]);
-
   const handleDismissConflict = useCallback(() => {
     if (activeFile) {
       clearConflict(activeFile.id);
@@ -189,13 +182,12 @@ export function FileEditor() {
       </div>
 
       {/* Conflict Dialog */}
-      {activeConflict && (
+      {activeConflict && activeFile && (
         <ConflictDialog
-          open={true}
-          onOpenChange={(open) => !open && handleDismissConflict()}
-          filePath={activeFile?.remotePath || ""}
-          serverId={activeFile?.serverId || ""}
-          onResolve={handleResolveConflict}
+          conflict={activeConflict}
+          fileId={activeFile.id}
+          onViewDiff={() => {}}
+          onClose={handleDismissConflict}
         />
       )}
     </div>

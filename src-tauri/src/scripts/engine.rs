@@ -25,6 +25,9 @@ pub struct ExecutionConfig {
     /// Optional sudo password for commands requiring elevated privileges
     #[serde(default)]
     pub sudo_password: Option<String>,
+    /// Enable deep validation in dry-run (SSH connectivity, command availability)
+    #[serde(default)]
+    pub validate_prerequisites: bool,
 }
 
 /// Result of a dry-run execution
@@ -33,6 +36,8 @@ pub struct DryRunResult {
     pub script_name: String,
     pub servers: Vec<DryRunServer>,
     pub total_steps: usize,
+    #[serde(default)]
+    pub validated: bool,
 }
 
 /// Dry-run result for a single server
@@ -41,6 +46,10 @@ pub struct DryRunServer {
     pub server_id: String,
     pub server_name: String,
     pub steps: Vec<DryRunStep>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub ssh_reachable: Option<bool>,
 }
 
 /// Dry-run result for a single step
@@ -54,11 +63,21 @@ pub struct DryRunStep {
     pub condition_result: Option<bool>,
     pub will_execute: bool,
     pub skip_reason: Option<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// State of a running deployment for cancellation support
 struct RunningDeployment {
     cancel_flag: Arc<AtomicBool>,
+}
+
+/// Result of rollback execution with detailed status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackStatus {
+    pub succeeded_steps: Vec<usize>,
+    pub failed_steps: Vec<(usize, String)>,
+    pub partial: bool,
 }
 
 /// Script execution engine
@@ -232,9 +251,16 @@ impl ScriptEngine {
         variables: &HashMap<String, String>,
         cancel_flag: Arc<AtomicBool>,
     ) -> Result<DeploymentStatus> {
+        use tokio::sync::Semaphore;
+        
+        // Limit concurrent SSH connections to prevent resource exhaustion
+        let max_concurrent = Arc::new(Semaphore::new(10));
         let mut handles = Vec::new();
 
         for server in servers {
+            let permit = max_concurrent.clone().acquire_owned().await
+                .map_err(|e| AppError::CommandFailed(format!("Semaphore error: {}", e)))?;
+            
             let script_clone = script.clone();
             let deployment_id = deployment.id.clone();
             let server_clone = server.clone();
@@ -245,6 +271,7 @@ impl ScriptEngine {
             let deployment_logger = self.deployment_logger.clone();
 
             let handle = tokio::spawn(async move {
+                let _permit = permit; // Hold permit until task completes
                 let context = ExecutionContext::new(Some(server_clone.clone()), whoami::username());
                 
                 execute_steps_on_server_static(
@@ -341,8 +368,25 @@ impl ScriptEngine {
         for server in &servers {
             let context = ExecutionContext::new(Some(server.clone()), whoami::username());
             let mut dry_run_steps = Vec::new();
+            let mut server_warnings = Vec::new();
+            let mut ssh_reachable = None;
+
+            // Deep validation: test SSH connectivity
+            if config.validate_prerequisites {
+                match self.ssh_client.test_connection(server) {
+                    Ok(_) => {
+                        ssh_reachable = Some(true);
+                    }
+                    Err(e) => {
+                        ssh_reachable = Some(false);
+                        server_warnings.push(format!("SSH connection test failed: {}", e));
+                    }
+                }
+            }
 
             for step in &script.steps {
+                let mut step_warnings = Vec::new();
+
                 // Resolve commands with variables
                 let resolved_commands: Vec<String> = step.commands.iter()
                     .map(|cmd| {
@@ -355,6 +399,24 @@ impl ScriptEngine {
                     })
                     .collect();
 
+                // Deep validation: check command availability
+                if config.validate_prerequisites && ssh_reachable == Some(true) {
+                    for cmd in &resolved_commands {
+                        // Extract first word (command name)
+                        if let Some(cmd_name) = cmd.split_whitespace().next() {
+                            // Skip shell builtins and common constructs
+                            if !["cd", "echo", "export", "if", "then", "else", "fi", "for", "do", "done", "while", "{", "}"].contains(&cmd_name) {
+                                let check = format!("command -v {} >/dev/null 2>&1", cmd_name);
+                                if let Ok(result) = self.ssh_client.execute_command(server, &check, Some(5)) {
+                                    if result.exit_code != 0 {
+                                        step_warnings.push(format!("Command '{}' may not be available", cmd_name));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Resolve working directory
                 let resolved_working_dir = step.working_dir.as_ref().map(|wd| {
                     self.variable_resolver.resolve_with_script(
@@ -364,6 +426,18 @@ impl ScriptEngine {
                         &script.variables,
                     ).unwrap_or_else(|_| wd.clone())
                 });
+
+                // Deep validation: check working directory exists
+                if config.validate_prerequisites && ssh_reachable == Some(true) {
+                    if let Some(ref wd) = resolved_working_dir {
+                        let check = format!("test -d {}", wd);
+                        if let Ok(result) = self.ssh_client.execute_command(server, &check, Some(5)) {
+                            if result.exit_code != 0 {
+                                step_warnings.push(format!("Working directory '{}' may not exist", wd));
+                            }
+                        }
+                    }
+                }
 
                 // Evaluate condition if present
                 let (condition_result, will_execute, skip_reason) = if let Some(ref condition) = step.condition {
@@ -384,6 +458,7 @@ impl ScriptEngine {
                     condition_result,
                     will_execute,
                     skip_reason,
+                    warnings: step_warnings,
                 });
             }
 
@@ -391,6 +466,8 @@ impl ScriptEngine {
                 server_id: server.id.clone(),
                 server_name: server.name.clone(),
                 steps: dry_run_steps,
+                warnings: server_warnings,
+                ssh_reachable,
             });
         }
 
@@ -398,6 +475,7 @@ impl ScriptEngine {
             script_name: script.name.clone(),
             servers: dry_run_servers,
             total_steps: script.steps.len(),
+            validated: config.validate_prerequisites,
         })
     }
 
@@ -694,7 +772,18 @@ async fn execute_steps_on_server_static(
             ).await;
 
             match rollback_result {
-                Ok(_) => Ok(DeploymentStatus::RolledBack),
+                Ok(status) => {
+                    if status.partial {
+                        eprintln!(
+                            "[ROLLBACK] Partial rollback: {} succeeded, {} failed",
+                            status.succeeded_steps.len(),
+                            status.failed_steps.len()
+                        );
+                        Ok(DeploymentStatus::RollbackFailed)
+                    } else {
+                        Ok(DeploymentStatus::RolledBack)
+                    }
+                }
                 Err(_) => Ok(DeploymentStatus::RollbackFailed),
             }
         } else {
@@ -705,7 +794,7 @@ async fn execute_steps_on_server_static(
     }
 }
 
-/// Execute rollback steps
+/// Execute rollback steps with detailed status tracking
 async fn execute_rollback_steps_static(
     script: &DeploymentScript,
     deployment_id: &str,
@@ -716,8 +805,11 @@ async fn execute_rollback_steps_static(
     ssh_client: Arc<SshClient>,
     variable_resolver: Arc<VariableResolver>,
     deployment_logger: Arc<DeploymentLogger>,
-) -> Result<()> {
-    for step in &script.rollback_steps {
+) -> Result<RollbackStatus> {
+    let mut succeeded_steps = Vec::new();
+    let mut failed_steps = Vec::new();
+
+    for (idx, step) in script.rollback_steps.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(AppError::CommandFailed("Rollback cancelled".to_string()));
         }
@@ -750,8 +842,24 @@ async fn execute_rollback_steps_static(
                     &result,
                 ).await?;
 
-                // For rollback, we continue even if a step fails
-                // to try to restore as much as possible
+                if result.exit_code == 0 {
+                    succeeded_steps.push(idx);
+                } else {
+                    failed_steps.push((idx, result.stderr.clone()));
+                    
+                    // Check if this is a critical rollback step
+                    // Critical steps use on_error: Abort
+                    if step.on_error == crate::scripts::models::OnError::Abort {
+                        eprintln!(
+                            "[ROLLBACK] Critical step '{}' failed: {}",
+                            step.name, result.stderr
+                        );
+                        return Err(AppError::CommandFailed(format!(
+                            "Critical rollback step '{}' failed: {}",
+                            step.name, result.stderr
+                        )));
+                    }
+                }
             }
             Err(e) => {
                 let error_result = StepResult {
@@ -766,11 +874,25 @@ async fn execute_rollback_steps_static(
                     &server.id,
                     &error_result,
                 ).await?;
+
+                failed_steps.push((idx, e.to_string()));
+
+                // Check if critical
+                if step.on_error == crate::scripts::models::OnError::Abort {
+                    return Err(AppError::CommandFailed(format!(
+                        "Critical rollback step '{}' failed: {}",
+                        step.name, e
+                    )));
+                }
             }
         }
     }
 
-    Ok(())
+    Ok(RollbackStatus {
+        succeeded_steps,
+        failed_steps: failed_steps.clone(),
+        partial: !failed_steps.is_empty(),
+    })
 }
 
 
@@ -845,8 +967,19 @@ async fn execute_single_step(
         script_commands.push(full_command);
     }
 
-    // Join all commands with && to stop on first failure
-    let combined_script = script_commands.join(" && ");
+    // Join commands with complex error handling for better debugging
+    // Each command is wrapped to report which step failed
+    let combined_script = script_commands
+        .iter()
+        .enumerate()
+        .map(|(i, cmd)| {
+            format!(
+                "{{ {}; }} || {{ echo 'Command {} failed' >&2; exit 1; }}",
+                cmd, i + 1
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     
     // Execute all commands in a single SSH connection
     let timeout_secs = step.timeout.or(Some(300)); // Default 5 minute timeout
@@ -878,7 +1011,13 @@ async fn execute_single_step(
             Ok(StepResult {
                 exit_code: -1,
                 stdout: String::new(),
-                stderr: format!("[error] {}", e),
+                stderr: format!(
+                    "[error] Step '{}' failed: {}\nCommand: {}\nServer: {}",
+                    step.name,
+                    e,
+                    combined_script,
+                    server.name
+                ),
                 duration_ms: duration.as_millis() as u64,
             })
         }
@@ -886,17 +1025,22 @@ async fn execute_single_step(
 }
 
 /// Wrap sudo commands with password using stdin
-/// This converts "sudo cmd" to "echo 'password' | sudo -S -p '' cmd"
+/// This converts "sudo cmd" to "sudo -S -p '' sh -c 'cmd' <<< 'password'"
 /// -S reads password from stdin, -p '' suppresses the password prompt
 fn wrap_sudo_with_password(command: &str, sudo_password: &Option<String>) -> String {
+    use regex::Regex;
+    
     if let Some(ref password) = sudo_password {
-        // Check if command contains sudo
-        if command.contains("sudo ") {
-            // Escape password for shell
-            let escaped_password = shell_escape(password);
-            // Replace "sudo " with "echo 'password' | sudo -S -p '' "
-            // -p '' suppresses the "[sudo] password for user:" prompt
-            command.replace("sudo ", &format!("echo {} | sudo -S -p '' ", escaped_password))
+        // Use regex for more precise matching of sudo commands
+        let sudo_regex = Regex::new(r"\bsudo\s+").unwrap();
+        if sudo_regex.is_match(command) {
+            // Better approach: Use -S with stdin from secure source
+            // Or pre-authenticate sudo before running command
+            format!(
+                "sudo -S -p '' sh -c {} <<< {}",
+                shell_escape(command),
+                shell_escape(password)
+            )
         } else {
             command.to_string()
         }

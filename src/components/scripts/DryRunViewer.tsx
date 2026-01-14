@@ -99,7 +99,6 @@ export function DryRunViewer({
   if (!result) return null;
 
   // Count statistics
-  const totalSteps = result.total_steps;
   const executableSteps = result.servers.reduce(
     (acc, s) => acc + s.steps.filter((step) => step.will_execute).length,
     0
@@ -229,6 +228,7 @@ function ServerDryRun({
 }: ServerDryRunProps) {
   const executableCount = server.steps.filter((s) => s.will_execute).length;
   const skippedCount = server.steps.filter((s) => !s.will_execute).length;
+  const hasWarnings = server.warnings.length > 0 || server.steps.some(s => s.warnings.length > 0);
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={onToggle}>
@@ -244,6 +244,18 @@ function ServerDryRun({
             <Server className="w-4 h-4 text-muted-foreground" />
             <span className="flex-1 font-medium">{server.server_name}</span>
             <div className="flex items-center gap-3 text-xs">
+              {/* SSH Status */}
+              {server.ssh_reachable !== null && (
+                <span className={server.ssh_reachable ? "text-green-500" : "text-destructive"}>
+                  {server.ssh_reachable ? "SSH OK" : "SSH Failed"}
+                </span>
+              )}
+              {hasWarnings && (
+                <span className="text-yellow-500 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Warnings
+                </span>
+              )}
               <span className="text-green-500">{executableCount} steps</span>
               {skippedCount > 0 && (
                 <span className="text-muted-foreground">{skippedCount} skipped</span>
@@ -253,6 +265,20 @@ function ServerDryRun({
         </Collapsible.Trigger>
 
         <Collapsible.Content>
+          {/* Server Warnings */}
+          {server.warnings.length > 0 && (
+            <div className="px-4 py-2 border-b border-border bg-yellow-500/10">
+              <div className="flex items-start gap-2 text-sm text-yellow-600 dark:text-yellow-400">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  {server.warnings.map((warning, idx) => (
+                    <p key={idx}>{warning}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Copy All Button */}
           {executableCount > 0 && (
             <div className="px-4 py-2 border-b border-border bg-secondary/20">
@@ -303,6 +329,7 @@ interface StepDryRunProps {
 
 function StepDryRun({ step, onCopyCommand, copiedCommand }: StepDryRunProps) {
   const [isExpanded, setIsExpanded] = useState(step.will_execute);
+  const hasWarnings = step.warnings.length > 0;
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={setIsExpanded}>
@@ -324,6 +351,12 @@ function StepDryRun({ step, onCopyCommand, copiedCommand }: StepDryRunProps) {
             <XCircle className="w-4 h-4 text-muted-foreground" />
           )}
           <span className="flex-1 text-sm font-medium">{step.step_name}</span>
+          {hasWarnings && (
+            <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              {step.warnings.length} warning{step.warnings.length > 1 ? 's' : ''}
+            </span>
+          )}
           {step.condition && (
             <span className="text-xs px-2 py-0.5 rounded bg-secondary text-muted-foreground">
               Conditional
@@ -334,6 +367,20 @@ function StepDryRun({ step, onCopyCommand, copiedCommand }: StepDryRunProps) {
 
       <Collapsible.Content>
         <div className="px-4 pb-3 space-y-2">
+          {/* Step Warnings */}
+          {hasWarnings && (
+            <div className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20">
+              <div className="flex items-start gap-2 text-sm text-yellow-600 dark:text-yellow-400">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <div className="space-y-1">
+                  {step.warnings.map((warning, idx) => (
+                    <p key={idx}>{warning}</p>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Skip Reason */}
           {step.skip_reason && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -417,13 +464,52 @@ interface InlineDryRunPreviewProps {
 }
 
 export function InlineDryRunPreview({ result, className }: InlineDryRunPreviewProps) {
+  const totalWarnings = result.servers.reduce(
+    (acc, s) => acc + s.warnings.length + s.steps.reduce((a, step) => a + step.warnings.length, 0),
+    0
+  );
+
   return (
     <div className={cn("space-y-3", className)}>
+      {/* Validation Status */}
+      {result.validated && (
+        <div className={cn(
+          "text-xs px-2 py-1 rounded inline-flex items-center gap-1",
+          totalWarnings > 0 ? "bg-yellow-500/20 text-yellow-600" : "bg-green-500/20 text-green-600"
+        )}>
+          {totalWarnings > 0 ? (
+            <>
+              <AlertCircle className="w-3 h-3" />
+              {totalWarnings} warning{totalWarnings > 1 ? 's' : ''} found
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-3 h-3" />
+              Validation passed
+            </>
+          )}
+        </div>
+      )}
+
       {result.servers.map((server) => (
         <div key={server.server_id} className="text-sm">
-          <div className="font-medium text-muted-foreground mb-1">
+          <div className="font-medium text-muted-foreground mb-1 flex items-center gap-2">
             {server.server_name}
+            {server.ssh_reachable === false && (
+              <span className="text-xs text-destructive">(SSH unreachable)</span>
+            )}
           </div>
+          {/* Server warnings */}
+          {server.warnings.length > 0 && (
+            <div className="ml-4 mb-1 text-xs text-yellow-600 dark:text-yellow-400">
+              {server.warnings.map((w, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  {w}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="space-y-1 ml-4">
             {server.steps.map((step) => (
               <div
@@ -439,6 +525,11 @@ export function InlineDryRunPreview({ result, className }: InlineDryRunPreviewPr
                   <XCircle className="w-3 h-3 text-muted-foreground" />
                 )}
                 <span>{step.step_name}</span>
+                {step.warnings.length > 0 && (
+                  <span className="text-xs text-yellow-600 dark:text-yellow-400">
+                    ({step.warnings.length} warning{step.warnings.length > 1 ? 's' : ''})
+                  </span>
+                )}
                 {step.skip_reason && (
                   <span className="text-xs text-muted-foreground">
                     ({step.skip_reason})

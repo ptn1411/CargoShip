@@ -106,33 +106,69 @@ impl VariableResolver {
         script_variables: &[Variable],
         depth: usize,
     ) -> Result<String> {
+        let mut cache = HashMap::new();
+        self.resolve_with_cache(template, variables, context, script_variables, &mut cache, depth)
+    }
+
+    /// Single-pass resolution with cache for O(n) complexity
+    /// Avoids multiple regex scans and reduces string allocation overhead
+    fn resolve_with_cache(
+        &self,
+        template: &str,
+        variables: &HashMap<String, String>,
+        context: &ExecutionContext,
+        script_variables: &[Variable],
+        cache: &mut HashMap<String, String>,
+        depth: usize,
+    ) -> Result<String> {
         const MAX_DEPTH: usize = 10;
-        
+
         if depth > MAX_DEPTH {
             return Err(AppError::ValidationError(
                 "Maximum variable nesting depth exceeded (possible circular reference)".to_string()
             ));
         }
 
-        let mut result = template.to_string();
         let var_pattern = Regex::new(r"\{\{([^}]+)\}\}").unwrap();
-        
-        // Find all variables in the template
-        let matches: Vec<(String, String)> = var_pattern
-            .captures_iter(template)
-            .map(|cap| (cap[0].to_string(), cap[1].trim().to_string()))
-            .collect();
 
-        for (full_match, var_name) in matches {
-            let value = self.get_variable_value(&var_name, variables, context, script_variables)?;
-            
-            // Recursively resolve nested variables in the value
-            let resolved_value = self.resolve_with_depth(&value, variables, context, script_variables, depth + 1)?;
-            
-            result = result.replace(&full_match, &resolved_value);
+        // Use replace_all for single-pass resolution
+        let mut last_error: Option<AppError> = None;
+        
+        let result = var_pattern.replace_all(template, |caps: &regex::Captures| {
+            let var_name = caps[1].trim();
+
+            // Check cache first
+            if let Some(cached) = cache.get(var_name) {
+                return cached.clone();
+            }
+
+            // Resolve and cache
+            match self.get_variable_value(var_name, variables, context, script_variables) {
+                Ok(value) => {
+                    // Recursively resolve nested variables with cache
+                    let resolved = self
+                        .resolve_with_cache(&value, variables, context, script_variables, cache, depth + 1)
+                        .unwrap_or_else(|e| {
+                            last_error = Some(e);
+                            value.clone()
+                        });
+                    cache.insert(var_name.to_string(), resolved.clone());
+                    resolved
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    // Keep unresolved variable marker for debugging
+                    format!("{{{{{}}}}}", var_name)
+                }
+            }
+        });
+
+        // Return error if any resolution failed
+        if let Some(err) = last_error {
+            return Err(err);
         }
 
-        Ok(result)
+        Ok(result.to_string())
     }
 
     /// Get the value for a single variable

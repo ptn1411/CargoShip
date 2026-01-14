@@ -14,7 +14,8 @@ pub async fn init_database(app_data_dir: &Path) -> Result<SqlitePool> {
 
     let options = SqliteConnectOptions::from_str(&db_url)
         .map_err(|e| AppError::DatabaseError(format!("Invalid database URL: {}", e)))?
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .foreign_keys(true);  // Enable foreign key enforcement for cascade deletes
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -163,6 +164,178 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create deployment_logs index: {}", e)))?;
+
+    // Phase 4: Create server_groups table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS server_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create server_groups table: {}", e)))?;
+
+    // Phase 4: Create group_members table with foreign keys and cascade delete
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id TEXT NOT NULL,
+            server_id TEXT NOT NULL,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (group_id, server_id),
+            FOREIGN KEY (group_id) REFERENCES server_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create group_members table: {}", e)))?;
+
+    // Create indexes for group_members
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create group_members group index: {}", e)))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_members_server ON group_members(server_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create group_members server index: {}", e)))?;
+
+    // Phase 4: Create snippets table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS snippets (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT,
+            command TEXT NOT NULL,
+            category TEXT NOT NULL,
+            tags TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create snippets table: {}", e)))?;
+
+    // Create index for snippets category
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_snippets_category ON snippets(category)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create snippets category index: {}", e)))?;
+
+    // Phase 4: Create server_metrics table for monitoring
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS server_metrics (
+            id TEXT PRIMARY KEY,
+            server_id TEXT NOT NULL,
+            cpu_percent REAL,
+            memory_used INTEGER,
+            memory_total INTEGER,
+            disk_used INTEGER,
+            disk_total INTEGER,
+            load_average TEXT,
+            uptime_seconds INTEGER,
+            collected_at TEXT NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics table: {}", e)))?;
+
+    // Create indexes for server_metrics
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_server_metrics_server ON server_metrics(server_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics server index: {}", e)))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_server_metrics_time ON server_metrics(collected_at)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics time index: {}", e)))?;
+
+    // Phase 4: Create alerts table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            server_id TEXT,
+            metric TEXT NOT NULL,
+            condition TEXT NOT NULL,
+            threshold REAL NOT NULL,
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create alerts table: {}", e)))?;
+
+    // Create index for alerts
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_alerts_server ON alerts(server_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create alerts server index: {}", e)))?;
+
+    // Phase 4: Create favorites table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS favorites (
+            id TEXT PRIMARY KEY,
+            item_type TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(item_type, item_id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create favorites table: {}", e)))?;
+
+    // Create index for favorites
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites(item_type)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create favorites type index: {}", e)))?;
+
+    // Phase 4: Create activity_log table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            item_type TEXT,
+            item_id TEXT,
+            details TEXT,
+            created_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create activity_log table: {}", e)))?;
+
+    // Create index for activity_log time
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_log_time ON activity_log(created_at)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create activity_log time index: {}", e)))?;
 
     Ok(())
 }
