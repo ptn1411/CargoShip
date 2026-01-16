@@ -1,16 +1,18 @@
 import { useState, useEffect } from "react";
-import { Plus, FileCode, LayoutTemplate, RefreshCw, Loader2, Sparkles } from "lucide-react";
+import { Plus, FileCode, LayoutTemplate, RefreshCw, Loader2, Sparkles, History } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { DeploymentScript, TemplateInfo, Deployment } from "../../lib/tauri";
 import { ScriptList } from "./ScriptList";
 import { ScriptEditor } from "./ScriptEditor";
 import { DeploymentWizard } from "./DeploymentWizard";
 import { DeploymentProgress } from "./DeploymentProgress";
+import { DeploymentHistory } from "./DeploymentHistory";
+import { DeploymentDetail } from "./DeploymentDetail";
 import { useAppStore } from "../../store";
 import { parseError } from "../../lib/errorHandler";
 
 type ViewMode = "list" | "editor";
-type TabMode = "scripts" | "templates";
+type TabMode = "scripts" | "templates" | "history";
 
 /**
  * ScriptManagement - wrapper component that manages navigation between
@@ -25,6 +27,8 @@ export function ScriptManagement() {
   const [showDeployWizard, setShowDeployWizard] = useState(false);
   const [activeDeployment, setActiveDeployment] = useState<Deployment | null>(null);
   const [showDeploymentProgress, setShowDeploymentProgress] = useState(false);
+  const [viewingDeployment, setViewingDeployment] = useState<Deployment | null>(null);
+  const [showDeploymentDetail, setShowDeploymentDetail] = useState(false);
 
   // Get deployments from store to find the active one
   const deployments = useAppStore((state) => state.deployments);
@@ -58,6 +62,11 @@ export function ScriptManagement() {
   const handleTemplateSelected = (script: DeploymentScript) => {
     setEditingScript(script);
     setViewMode("editor");
+  };
+
+  const handleViewDeployment = (deployment: Deployment) => {
+    setViewingDeployment(deployment);
+    setShowDeploymentDetail(true);
   };
 
   const handleDeploymentStarted = (_deploymentId: string, deployment: Deployment) => {
@@ -116,6 +125,18 @@ export function ScriptManagement() {
           >
             <LayoutTemplate className="w-4 h-4" />
             Templates
+          </button>
+          <button
+            onClick={() => setTabMode("history")}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors",
+              tabMode === "history"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <History className="w-4 h-4" />
+            History
           </button>
         </div>
 
@@ -177,9 +198,21 @@ export function ScriptManagement() {
           onEditScript={handleEditScript}
           onRunScript={handleRunScript}
         />
-      ) : (
+      ) : tabMode === "templates" ? (
         <TemplatesGrid onTemplateSelected={handleTemplateSelected} />
+      ) : (
+        <DeploymentHistory onViewDeployment={handleViewDeployment} />
       )}
+
+      {/* Deployment Detail Dialog */}
+      <DeploymentDetail
+        deployment={viewingDeployment}
+        open={showDeploymentDetail}
+        onOpenChange={(open) => {
+          setShowDeploymentDetail(open);
+          if (!open) setViewingDeployment(null);
+        }}
+      />
     </div>
   );
 }

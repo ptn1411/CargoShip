@@ -53,6 +53,7 @@ export function DeploymentDetail({
   onOpenChange,
 }: DeploymentDetailProps) {
   const loadDeploymentLogs = useAppStore((state) => state.loadDeploymentLogs);
+  const deploymentLogs = useAppStore((state) => state.deploymentLogs);
   const rollbackDeployment = useAppStore((state) => state.rollbackDeployment);
   const getRollbackInfo = useAppStore((state) => state.getRollbackInfo);
   const showError = useAppStore((state) => state.showError);
@@ -65,6 +66,9 @@ export function DeploymentDetail({
   const [rollbackInfo, setRollbackInfo] = useState<RollbackInfo | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // Get logs from store
+  const logs = deployment ? (deploymentLogs[deployment.id] || []) : [];
+
   // Load logs and rollback info when deployment changes
   useEffect(() => {
     if (deployment && open) {
@@ -74,14 +78,18 @@ export function DeploymentDetail({
       getRollbackInfo(deployment.id)
         .then(setRollbackInfo)
         .catch(() => setRollbackInfo(null));
+    }
+  }, [deployment, open, loadDeploymentLogs, getRollbackInfo]);
 
-      // Expand all steps by default
-      const allStepKeys = deployment.logs.map(
+  // Expand all steps when logs are loaded
+  useEffect(() => {
+    if (logs.length > 0) {
+      const allStepKeys = logs.map(
         (log) => `${log.step_id}-${log.server_id}`
       );
       setExpandedSteps(new Set(allStepKeys));
     }
-  }, [deployment, open, loadDeploymentLogs, getRollbackInfo]);
+  }, [logs]);
 
   // Toggle step expansion
   const toggleStep = (key: string) => {
@@ -201,7 +209,7 @@ export function DeploymentDetail({
   };
 
   // Filter logs by search term
-  const filteredLogs = deployment?.logs.filter((log) => {
+  const filteredLogs = logs.filter((log) => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     return (
@@ -209,7 +217,7 @@ export function DeploymentDetail({
       log.server_name.toLowerCase().includes(term) ||
       log.output.toLowerCase().includes(term)
     );
-  }) || [];
+  });
 
   // Group logs by server
   const logsByServer = filteredLogs.reduce((acc, log) => {
