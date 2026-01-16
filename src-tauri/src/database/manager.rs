@@ -1638,4 +1638,382 @@ impl DatabaseManager {
 
         Ok(())
     }
+
+    // ==================== Backup & Restore ====================
+
+    /// Create a database backup
+    pub fn backup_database(
+        &self,
+        server: &Server,
+        conn: &DatabaseConnection,
+        options: &super::types::BackupOptions,
+    ) -> Result<super::types::BackupResult> {
+        let start = std::time::Instant::now();
+        
+        // Build table list if specified
+        let table_args = match &options.tables {
+            Some(tables) if !tables.is_empty() => tables.join(" "),
+            _ => String::new(),
+        };
+
+        // Build dump command based on database type
+        let dump_cmd = match conn.db_type {
+            DatabaseType::MySQL => {
+                let mut args = vec![
+                    format!("-h {}", conn.host),
+                    format!("-P {}", conn.port),
+                    format!("-u {}", conn.username),
+                    format!("-p'{}'", conn.password),
+                ];
+                
+                if !options.include_structure && options.include_data {
+                    args.push("--no-create-info".to_string());
+                }
+                if options.include_structure && !options.include_data {
+                    args.push("--no-data".to_string());
+                }
+                
+                args.push(options.database.clone());
+                
+                if !table_args.is_empty() {
+                    args.push(table_args);
+                }
+                
+                format!("mysqldump {}", args.join(" "))
+            }
+            DatabaseType::PostgreSQL => {
+                let mut args = vec![
+                    format!("-h {}", conn.host),
+                    format!("-p {}", conn.port),
+                    format!("-U {}", conn.username),
+                    format!("-d {}", options.database),
+                ];
+                
+                if !options.include_structure && options.include_data {
+                    args.push("--data-only".to_string());
+                }
+                if options.include_structure && !options.include_data {
+                    args.push("--schema-only".to_string());
+                }
+                
+                if let Some(tables) = &options.tables {
+                    for table in tables {
+                        args.push(format!("-t {}", table));
+                    }
+                }
+                
+                format!("PGPASSWORD='{}' pg_dump {}", conn.password, args.join(" "))
+            }
+        };
+
+        // Determine output handling
+        let cmd = if let Some(ref remote_path) = options.remote_path {
+            if options.compress {
+                format!("{} | gzip > {}", dump_cmd, remote_path)
+            } else {
+                format!("{} > {}", dump_cmd, remote_path)
+            }
+        } else if options.compress {
+            // Compress and base64 encode for transfer
+            format!("{} | gzip | base64", dump_cmd)
+        } else {
+            dump_cmd
+        };
+
+        // Execute with longer timeout for large databases
+        let output = self.ssh_client.execute_command(server, &cmd, Some(600))?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        if output.exit_code != 0 {
+            return Ok(super::types::BackupResult {
+                success: false,
+                file_path: None,
+                file_size: None,
+                content: None,
+                duration_ms,
+                error: Some(output.stderr),
+            });
+        }
+
+        // Get file size if saved to remote path
+        let file_size = if let Some(ref remote_path) = options.remote_path {
+            let size_cmd = format!("stat -c%s {} 2>/dev/null || stat -f%z {}", remote_path, remote_path);
+            if let Ok(size_output) = self.ssh_client.execute_command(server, &size_cmd, Some(10)) {
+                size_output.stdout.trim().parse().ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok(super::types::BackupResult {
+            success: true,
+            file_path: options.remote_path.clone(),
+            file_size,
+            content: if options.remote_path.is_none() && !options.compress {
+                Some(output.stdout)
+            } else if options.remote_path.is_none() && options.compress {
+                Some(output.stdout) // Base64 encoded gzip content
+            } else {
+                None
+            },
+            duration_ms,
+            error: None,
+        })
+    }
+
+    /// Restore a database from backup
+    pub fn restore_database(
+        &self,
+        server: &Server,
+        conn: &DatabaseConnection,
+        options: &super::types::RestoreOptions,
+    ) -> Result<super::types::RestoreResult> {
+        let start = std::time::Instant::now();
+
+        // Build restore command based on source type
+        let restore_cmd = match &options.source {
+            super::types::RestoreSource::RemotePath(path) => {
+                let is_compressed = path.ends_with(".gz") || path.ends_with(".gzip");
+                let cat_cmd = if is_compressed {
+                    format!("zcat {}", path)
+                } else {
+                    format!("cat {}", path)
+                };
+
+                match conn.db_type {
+                    DatabaseType::MySQL => {
+                        format!(
+                            "{} | mysql -h {} -P {} -u {} -p'{}' {}",
+                            cat_cmd, conn.host, conn.port, conn.username, conn.password, options.database
+                        )
+                    }
+                    DatabaseType::PostgreSQL => {
+                        format!(
+                            "{} | PGPASSWORD='{}' psql -h {} -p {} -U {} -d {}",
+                            cat_cmd, conn.password, conn.host, conn.port, conn.username, options.database
+                        )
+                    }
+                }
+            }
+            super::types::RestoreSource::Content(content) => {
+                // For content, we need to write to a temp file first
+                let temp_file = format!("/tmp/db_restore_{}.sql", uuid::Uuid::new_v4());
+                let escaped_content = content.replace("'", "'\\''");
+                
+                match conn.db_type {
+                    DatabaseType::MySQL => {
+                        format!(
+                            "echo '{}' > {} && mysql -h {} -P {} -u {} -p'{}' {} < {} && rm -f {}",
+                            escaped_content, temp_file, conn.host, conn.port, conn.username, 
+                            conn.password, options.database, temp_file, temp_file
+                        )
+                    }
+                    DatabaseType::PostgreSQL => {
+                        format!(
+                            "echo '{}' > {} && PGPASSWORD='{}' psql -h {} -p {} -U {} -d {} < {} && rm -f {}",
+                            escaped_content, temp_file, conn.password, conn.host, conn.port, 
+                            conn.username, options.database, temp_file, temp_file
+                        )
+                    }
+                }
+            }
+        };
+
+        // Optionally drop existing tables first
+        if options.drop_existing {
+            let drop_cmd = match conn.db_type {
+                DatabaseType::MySQL => {
+                    format!(
+                        "mysql -h {} -P {} -u {} -p'{}' {} -N -e \"SET FOREIGN_KEY_CHECKS=0; SELECT CONCAT('DROP TABLE IF EXISTS ', table_name, ';') FROM information_schema.tables WHERE table_schema = '{}';\" | mysql -h {} -P {} -u {} -p'{}' {}; mysql -h {} -P {} -u {} -p'{}' {} -e \"SET FOREIGN_KEY_CHECKS=1;\"",
+                        conn.host, conn.port, conn.username, conn.password, options.database, options.database,
+                        conn.host, conn.port, conn.username, conn.password, options.database,
+                        conn.host, conn.port, conn.username, conn.password, options.database
+                    )
+                }
+                DatabaseType::PostgreSQL => {
+                    format!(
+                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -d {} -c \"DROP SCHEMA public CASCADE; CREATE SCHEMA public;\"",
+                        conn.password, conn.host, conn.port, conn.username, options.database
+                    )
+                }
+            };
+            
+            let _ = self.ssh_client.execute_command(server, &drop_cmd, Some(60));
+        }
+
+        // Execute restore
+        let output = self.ssh_client.execute_command(server, &restore_cmd, Some(600))?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        if output.exit_code != 0 {
+            return Ok(super::types::RestoreResult {
+                success: false,
+                tables_restored: 0,
+                duration_ms,
+                error: Some(output.stderr),
+            });
+        }
+
+        // Count restored tables
+        let count_cmd = match conn.db_type {
+            DatabaseType::MySQL => {
+                format!(
+                    "mysql -h {} -P {} -u {} -p'{}' {} -N -e \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = '{}';\"",
+                    conn.host, conn.port, conn.username, conn.password, options.database, options.database
+                )
+            }
+            DatabaseType::PostgreSQL => {
+                format!(
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d {} -t -A -c \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';\"",
+                    conn.password, conn.host, conn.port, conn.username, options.database
+                )
+            }
+        };
+
+        let tables_restored = if let Ok(count_output) = self.ssh_client.execute_command(server, &count_cmd, Some(10)) {
+            count_output.stdout.trim().parse().unwrap_or(0)
+        } else {
+            0
+        };
+
+        Ok(super::types::RestoreResult {
+            success: true,
+            tables_restored,
+            duration_ms,
+            error: None,
+        })
+    }
+
+    /// List backup files on remote server
+    pub fn list_backup_files(
+        &self,
+        server: &Server,
+        directory: &str,
+    ) -> Result<Vec<super::types::BackupFileInfo>> {
+        let cmd = format!(
+            "find {} -maxdepth 1 -type f \\( -name '*.sql' -o -name '*.sql.gz' -o -name '*.dump' -o -name '*.dump.gz' \\) -printf '%f|%s|%T@\\n' 2>/dev/null | sort -t'|' -k3 -rn",
+            directory
+        );
+
+        let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
+
+        let mut files = Vec::new();
+        for line in output.stdout.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 3 {
+                let name = parts[0].to_string();
+                let size: i64 = parts[1].parse().unwrap_or(0);
+                let timestamp: f64 = parts[2].parse().unwrap_or(0.0);
+                let modified_at = chrono::DateTime::from_timestamp(timestamp as i64, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default();
+
+                files.push(super::types::BackupFileInfo {
+                    name,
+                    path: format!("{}/{}", directory.trim_end_matches('/'), parts[0]),
+                    size,
+                    modified_at,
+                    compressed: parts[0].ends_with(".gz"),
+                });
+            }
+        }
+
+        Ok(files)
+    }
+
+    /// Delete a backup file
+    pub fn delete_backup_file(
+        &self,
+        server: &Server,
+        file_path: &str,
+    ) -> Result<()> {
+        let cmd = format!("rm -f {}", file_path);
+        let output = self.ssh_client.execute_command(server, &cmd, Some(10))?;
+
+        if output.exit_code != 0 {
+            return Err(anyhow!("Failed to delete backup file: {}", output.stderr));
+        }
+
+        Ok(())
+    }
+
+    /// Save backup history entry
+    pub async fn save_backup_history(
+        &self,
+        entry: &super::types::BackupHistoryEntry,
+    ) -> Result<()> {
+        let tables_json = entry.tables.as_ref()
+            .map(|t| serde_json::to_string(t).unwrap_or_default());
+
+        sqlx::query(
+            r#"
+            INSERT INTO backup_history 
+            (id, connection_id, database_name, file_path, file_size, tables_json, include_structure, include_data, compressed, status, error, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&entry.id)
+        .bind(&entry.connection_id)
+        .bind(&entry.database)
+        .bind(&entry.file_path)
+        .bind(entry.file_size)
+        .bind(&tables_json)
+        .bind(if entry.include_structure { 1 } else { 0 })
+        .bind(if entry.include_data { 1 } else { 0 })
+        .bind(if entry.compressed { 1 } else { 0 })
+        .bind(&entry.status)
+        .bind(&entry.error)
+        .bind(&entry.created_at)
+        .execute(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to save backup history: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get backup history
+    pub async fn get_backup_history(
+        &self,
+        connection_id: Option<&str>,
+        limit: i32,
+    ) -> Result<Vec<super::types::BackupHistoryEntry>> {
+        let rows: Vec<super::types::BackupHistoryRow> = if let Some(conn_id) = connection_id {
+            sqlx::query_as(
+                "SELECT * FROM backup_history WHERE connection_id = ? ORDER BY created_at DESC LIMIT ?",
+            )
+            .bind(conn_id)
+            .bind(limit)
+            .fetch_all(&self.db_pool)
+            .await
+        } else {
+            sqlx::query_as(
+                "SELECT * FROM backup_history ORDER BY created_at DESC LIMIT ?",
+            )
+            .bind(limit)
+            .fetch_all(&self.db_pool)
+            .await
+        }
+        .map_err(|e| anyhow!("Failed to get backup history: {}", e))?;
+
+        Ok(rows.into_iter().map(|r: super::types::BackupHistoryRow| r.into()).collect())
+    }
+
+    /// Clear backup history
+    pub async fn clear_backup_history(&self, connection_id: Option<&str>) -> Result<()> {
+        if let Some(conn_id) = connection_id {
+            sqlx::query("DELETE FROM backup_history WHERE connection_id = ?")
+                .bind(conn_id)
+                .execute(&self.db_pool)
+                .await
+        } else {
+            sqlx::query("DELETE FROM backup_history")
+                .execute(&self.db_pool)
+                .await
+        }
+        .map_err(|e| anyhow!("Failed to clear backup history: {}", e))?;
+
+        Ok(())
+    }
 }

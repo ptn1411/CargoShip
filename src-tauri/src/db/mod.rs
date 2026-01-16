@@ -448,5 +448,35 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     .await
     .map_err(|e| AppError::DatabaseError(format!("Failed to create saved_queries table: {}", e)))?;
 
+    // Create backup_history table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS backup_history (
+            id TEXT PRIMARY KEY,
+            connection_id TEXT NOT NULL,
+            database_name TEXT NOT NULL,
+            file_path TEXT,
+            file_size INTEGER,
+            tables_json TEXT,
+            include_structure INTEGER NOT NULL DEFAULT 1,
+            include_data INTEGER NOT NULL DEFAULT 1,
+            compressed INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create backup_history table: {}", e)))?;
+
+    // Create index for backup_history
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_backup_history_connection ON backup_history(connection_id, created_at DESC)")
+        .execute(pool)
+        .await
+        .ok();
+
     Ok(())
 }

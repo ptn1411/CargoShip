@@ -379,3 +379,124 @@ pub struct SaveQueryInput {
     pub query: String,
     pub database: Option<String>,
 }
+
+
+// ==================== Backup Types ====================
+
+/// Backup options
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupOptions {
+    pub connection_id: String,
+    pub database: String,
+    pub tables: Option<Vec<String>>,  // None = all tables
+    pub include_structure: bool,
+    pub include_data: bool,
+    pub compress: bool,
+    pub remote_path: Option<String>,  // If None, returns content directly
+}
+
+/// Backup result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupResult {
+    pub success: bool,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub content: Option<String>,  // Only if remote_path is None and not compressed
+    pub duration_ms: u64,
+    pub error: Option<String>,
+}
+
+/// Restore options
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreOptions {
+    pub connection_id: String,
+    pub database: String,
+    pub source: RestoreSource,
+    pub drop_existing: bool,  // Drop existing tables before restore
+}
+
+/// Source for restore operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "value")]
+pub enum RestoreSource {
+    /// Restore from a file path on the remote server
+    RemotePath(String),
+    /// Restore from SQL content directly
+    Content(String),
+}
+
+/// Restore result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreResult {
+    pub success: bool,
+    pub tables_restored: i32,
+    pub duration_ms: u64,
+    pub error: Option<String>,
+}
+
+/// Backup history entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupHistoryEntry {
+    pub id: String,
+    pub connection_id: String,
+    pub database: String,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub tables: Option<Vec<String>>,
+    pub include_structure: bool,
+    pub include_data: bool,
+    pub compressed: bool,
+    pub status: String,  // "success" | "failed"
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+/// SQLite row mapping for backup history
+#[derive(Debug, sqlx::FromRow)]
+pub struct BackupHistoryRow {
+    pub id: String,
+    pub connection_id: String,
+    pub database_name: String,
+    pub file_path: Option<String>,
+    pub file_size: Option<i64>,
+    pub tables_json: Option<String>,
+    pub include_structure: i32,
+    pub include_data: i32,
+    pub compressed: i32,
+    pub status: String,
+    pub error: Option<String>,
+    pub created_at: String,
+}
+
+impl From<BackupHistoryRow> for BackupHistoryEntry {
+    fn from(row: BackupHistoryRow) -> Self {
+        let tables: Option<Vec<String>> = row.tables_json
+            .and_then(|json| serde_json::from_str(&json).ok());
+        
+        BackupHistoryEntry {
+            id: row.id,
+            connection_id: row.connection_id,
+            database: row.database_name,
+            file_path: row.file_path,
+            file_size: row.file_size,
+            tables,
+            include_structure: row.include_structure != 0,
+            include_data: row.include_data != 0,
+            compressed: row.compressed != 0,
+            status: row.status,
+            error: row.error,
+            created_at: row.created_at,
+        }
+    }
+}
+
+
+/// Backup file info (for listing backup files on server)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupFileInfo {
+    pub name: String,
+    pub path: String,
+    pub size: i64,
+    pub modified_at: String,
+    pub compressed: bool,
+}

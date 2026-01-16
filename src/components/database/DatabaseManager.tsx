@@ -5,6 +5,7 @@ import { ConnectionForm } from "./ConnectionForm";
 import { DatabaseBrowser } from "./DatabaseBrowser";
 import { QueryEditor } from "./QueryEditor";
 import { UserManager } from "./UserManager";
+import { BackupManager } from "./BackupManager";
 import { useAppStore } from "../../store";
 import {
   DatabaseConnection,
@@ -13,7 +14,7 @@ import {
 } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
 
-type Tab = "browser" | "query" | "users";
+type Tab = "browser" | "query" | "users" | "backup";
 
 export function DatabaseManager() {
   const servers = useAppStore((state) => state.servers);
@@ -79,6 +80,7 @@ export function DatabaseManager() {
     { id: "browser", label: "Browser" },
     { id: "query", label: "Query" },
     { id: "users", label: "Users" },
+    { id: "backup", label: "Backup" },
   ];
 
   return (
@@ -171,6 +173,12 @@ export function DatabaseManager() {
                 )}
                 {activeTab === "users" && (
                   <UserManager connection={selectedConnection} />
+                )}
+                {activeTab === "backup" && (
+                  <BackupManager
+                    connection={selectedConnection}
+                    database={selectedDatabase}
+                  />
                 )}
               </div>
             </>

@@ -22,7 +22,7 @@ pub mod transfer;
 use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthCheckSummary};
 use cache::CacheManager;
 use credentials::CredentialStore;
-use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, QueryHistoryEntry, SavedQuery, SaveQueryInput};
+use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, QueryHistoryEntry, SavedQuery, SaveQueryInput, BackupOptions, BackupResult, RestoreOptions, RestoreResult, BackupFileInfo, BackupHistoryEntry};
 use docker::{DockerManager, DockerContainer, DockerImage, DockerVolume, DockerNetwork, DockerInfo, ContainerStats, ContainerLogs, CreateContainerInput, PullImageInput, CreateVolumeInput, CreateNetworkInput, DockerComposeProject};
 use db::init_database;
 use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
@@ -3401,6 +3401,145 @@ async fn db_search_table_data(
         .map_err(|e| e.to_string())
 }
 
+// ============================================================================
+// Database Backup & Restore Commands
+// ============================================================================
+
+/// Backup a database
+#[tauri::command]
+async fn db_backup_database(
+    state: tauri::State<'_, AppState>,
+    options: database::BackupOptions,
+) -> std::result::Result<database::BackupResult, String> {
+    let conn = state.database_manager
+        .get_connection(&options.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", options.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    let result = state.database_manager
+        .backup_database(&server, &conn, &options)
+        .map_err(|e| e.to_string())?;
+    
+    // Save to history
+    let history_entry = database::BackupHistoryEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        connection_id: options.connection_id.clone(),
+        database: options.database.clone(),
+        file_path: result.file_path.clone(),
+        file_size: result.file_size,
+        tables: options.tables.clone(),
+        include_structure: options.include_structure,
+        include_data: options.include_data,
+        compressed: options.compress,
+        status: if result.success { "success".to_string() } else { "failed".to_string() },
+        error: result.error.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
+    
+    let _ = state.database_manager.save_backup_history(&history_entry).await;
+    
+    Ok(result)
+}
+
+/// Restore a database from backup
+#[tauri::command]
+async fn db_restore_database(
+    state: tauri::State<'_, AppState>,
+    options: database::RestoreOptions,
+) -> std::result::Result<database::RestoreResult, String> {
+    let conn = state.database_manager
+        .get_connection(&options.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", options.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .restore_database(&server, &conn, &options)
+        .map_err(|e| e.to_string())
+}
+
+/// List backup files on remote server
+#[tauri::command]
+async fn db_list_backup_files(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    directory: String,
+) -> std::result::Result<Vec<database::BackupFileInfo>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .list_backup_files(&server, &directory)
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a backup file
+#[tauri::command]
+async fn db_delete_backup_file(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    file_path: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .delete_backup_file(&server, &file_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Get backup history
+#[tauri::command]
+async fn db_get_backup_history(
+    state: tauri::State<'_, AppState>,
+    connection_id: Option<String>,
+    limit: Option<i32>,
+) -> std::result::Result<Vec<database::BackupHistoryEntry>, String> {
+    state.database_manager
+        .get_backup_history(connection_id.as_deref(), limit.unwrap_or(50))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Clear backup history
+#[tauri::command]
+async fn db_clear_backup_history(
+    state: tauri::State<'_, AppState>,
+    connection_id: Option<String>,
+) -> std::result::Result<(), String> {
+    state.database_manager
+        .clear_backup_history(connection_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -3773,6 +3912,13 @@ pub fn run() {
             db_drop_table,
             db_truncate_table,
             db_search_table_data,
+            // Database Backup & Restore commands
+            db_backup_database,
+            db_restore_database,
+            db_list_backup_files,
+            db_delete_backup_file,
+            db_get_backup_history,
+            db_clear_backup_history,
             // Docker Management commands
             docker_get_info,
             docker_list_containers,

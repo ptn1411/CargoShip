@@ -6,3 +6,4 @@ export { TableViewer } from "./TableViewer";
 export { QueryEditor } from "./QueryEditor";
 export { UserManager } from "./UserManager";
 export { CreateTableForm } from "./CreateTableForm";
+export { BackupManager } from "./BackupManager";
