@@ -1,7 +1,7 @@
 [package]
 name = "devops-commander"
 version = "0.1.0"
-description = "DevOps Commander - VPS Management Tool"
+description = "CargoShip - VPS Management Tool"
 authors = ["you"]
 edition = "2021"
 
