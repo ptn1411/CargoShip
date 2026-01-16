@@ -1,111 +1,42 @@
 use super::types::*;
+use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use sqlx::{Pool, Sqlite};
 use std::sync::Arc;
 
-/// Database storage for persistent connection and query management
+/// Database storage for persistent connection and query management.
+/// Passwords are stored securely in the OS keychain, not in SQLite.
 pub struct DatabaseStorage {
     pool: Arc<Pool<Sqlite>>,
+    credential_store: CredentialStore,
 }
 
 impl DatabaseStorage {
     pub fn new(pool: Arc<Pool<Sqlite>>) -> Self {
-        Self { pool }
-    }
-
-    /// Initialize database tables
-    pub async fn init(&self) -> Result<()> {
-        // Create database_connections table
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS database_connections (
-                id TEXT PRIMARY KEY,
-                server_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                db_type TEXT NOT NULL,
-                host TEXT NOT NULL,
-                port INTEGER NOT NULL,
-                username TEXT NOT NULL,
-                password TEXT NOT NULL,
-                database_name TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-            "#,
-        )
-        .execute(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections table: {}", e)))?;
-
-        // Create query_history table
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS query_history (
-                id TEXT PRIMARY KEY,
-                connection_id TEXT NOT NULL,
-                database_name TEXT NOT NULL,
-                query TEXT NOT NULL,
-                execution_time_ms INTEGER NOT NULL,
-                rows_affected INTEGER NOT NULL DEFAULT 0,
-                success INTEGER NOT NULL DEFAULT 1,
-                error TEXT,
-                executed_at TEXT NOT NULL,
-                FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
-            )
-            "#,
-        )
-        .execute(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create query_history table: {}", e)))?;
-
-        // Create saved_queries table
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS saved_queries (
-                id TEXT PRIMARY KEY,
-                connection_id TEXT,
-                name TEXT NOT NULL,
-                description TEXT,
-                query TEXT NOT NULL,
-                database_name TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE SET NULL
-            )
-            "#,
-        )
-        .execute(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create saved_queries table: {}", e)))?;
-
-        // Create index for faster query history lookups
-        sqlx::query(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_query_history_connection 
-            ON query_history(connection_id, executed_at DESC)
-            "#,
-        )
-        .execute(self.pool.as_ref())
-        .await
-        .ok();
-
-        Ok(())
+        Self {
+            pool,
+            credential_store: CredentialStore::new(),
+        }
     }
 
     // ==================== Connection Management ====================
 
-    /// Save a database connection
+    /// Save a database connection (password goes to keychain)
     pub async fn save_connection(&self, conn: &DatabaseConnection) -> Result<()> {
         let db_type = match conn.db_type {
             DatabaseType::MySQL => "mysql",
             DatabaseType::PostgreSQL => "postgresql",
         };
 
+        // Store password in keychain
+        self.credential_store.store_db_password(&conn.id, &conn.password)?;
+
+        // Store connection info in SQLite (without password)
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO database_connections 
-            (id, server_id, name, db_type, host, port, username, password, database_name, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, server_id, name, db_type, host, port, username, database_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&conn.id)
@@ -115,7 +46,6 @@ impl DatabaseStorage {
         .bind(&conn.host)
         .bind(conn.port as i32)
         .bind(&conn.username)
-        .bind(&conn.password)
         .bind(&conn.database)
         .bind(&conn.created_at)
         .bind(&conn.updated_at)
@@ -126,7 +56,7 @@ impl DatabaseStorage {
         Ok(())
     }
 
-    /// Get a connection by ID
+    /// Get a connection by ID (retrieves password from keychain)
     pub async fn get_connection(&self, id: &str) -> Result<Option<DatabaseConnection>> {
         let row: Option<DbConnectionRow> = sqlx::query_as(
             "SELECT * FROM database_connections WHERE id = ?",
@@ -136,10 +66,19 @@ impl DatabaseStorage {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to get connection: {}", e)))?;
 
-        Ok(row.map(|r| r.into()))
+        match row {
+            Some(r) => {
+                let mut conn: DatabaseConnection = r.into();
+                // Retrieve password from keychain
+                conn.password = self.credential_store.retrieve_db_password(&conn.id)
+                    .unwrap_or_default();
+                Ok(Some(conn))
+            }
+            None => Ok(None),
+        }
     }
 
-    /// List all connections
+    /// List all connections (retrieves passwords from keychain)
     pub async fn list_connections(&self) -> Result<Vec<DatabaseConnection>> {
         let rows: Vec<DbConnectionRow> = sqlx::query_as(
             "SELECT * FROM database_connections ORDER BY name",
@@ -148,7 +87,15 @@ impl DatabaseStorage {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to list connections: {}", e)))?;
 
-        Ok(rows.into_iter().map(|r| r.into()).collect())
+        let mut connections: Vec<DatabaseConnection> = rows.into_iter().map(|r| r.into()).collect();
+        
+        // Retrieve passwords from keychain
+        for conn in &mut connections {
+            conn.password = self.credential_store.retrieve_db_password(&conn.id)
+                .unwrap_or_default();
+        }
+
+        Ok(connections)
     }
 
     /// List connections by server ID
@@ -161,11 +108,23 @@ impl DatabaseStorage {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to list connections: {}", e)))?;
 
-        Ok(rows.into_iter().map(|r| r.into()).collect())
+        let mut connections: Vec<DatabaseConnection> = rows.into_iter().map(|r| r.into()).collect();
+        
+        // Retrieve passwords from keychain
+        for conn in &mut connections {
+            conn.password = self.credential_store.retrieve_db_password(&conn.id)
+                .unwrap_or_default();
+        }
+
+        Ok(connections)
     }
 
-    /// Delete a connection
+    /// Delete a connection (also removes password from keychain)
     pub async fn delete_connection(&self, id: &str) -> Result<()> {
+        // Delete password from keychain
+        self.credential_store.delete_db_password(id)?;
+
+        // Delete from SQLite
         sqlx::query("DELETE FROM database_connections WHERE id = ?")
             .bind(id)
             .execute(self.pool.as_ref())
@@ -179,20 +138,23 @@ impl DatabaseStorage {
     pub async fn update_connection(&self, id: &str, input: &UpdateConnectionInput) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
         
-        // Build dynamic update query
+        // Update password in keychain if provided
+        if let Some(ref password) = input.password {
+            self.credential_store.store_db_password(id, password)?;
+        }
+
+        // Build dynamic update query for SQLite fields
         let mut updates = vec!["updated_at = ?"];
         let mut has_name = false;
         let mut has_host = false;
         let mut has_port = false;
         let mut has_username = false;
-        let mut has_password = false;
         let mut has_database = false;
 
         if input.name.is_some() { updates.push("name = ?"); has_name = true; }
         if input.host.is_some() { updates.push("host = ?"); has_host = true; }
         if input.port.is_some() { updates.push("port = ?"); has_port = true; }
         if input.username.is_some() { updates.push("username = ?"); has_username = true; }
-        if input.password.is_some() { updates.push("password = ?"); has_password = true; }
         if input.database.is_some() { updates.push("database_name = ?"); has_database = true; }
 
         let query = format!(
@@ -206,7 +168,6 @@ impl DatabaseStorage {
         if has_host { q = q.bind(input.host.as_ref().unwrap()); }
         if has_port { q = q.bind(*input.port.as_ref().unwrap() as i32); }
         if has_username { q = q.bind(input.username.as_ref().unwrap()); }
-        if has_password { q = q.bind(input.password.as_ref().unwrap()); }
         if has_database { q = q.bind(input.database.as_ref().unwrap()); }
         
         q = q.bind(id);

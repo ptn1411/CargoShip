@@ -35,6 +35,9 @@ tokio = { version = "1", features = ["full"] }
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
 
+# Encryption for sensitive data
+aes-gcm = "0.10"
+
 # Secure credential storage
 # Platform-specific features:
 # - windows-native: Windows Credential Manager

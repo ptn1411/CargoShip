@@ -4,6 +4,7 @@ pub mod credentials;
 pub mod database;
 pub mod db;
 pub mod deployments;
+pub mod docker;
 pub mod error;
 pub mod favorites;
 pub mod files;
@@ -22,6 +23,7 @@ use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthC
 use cache::CacheManager;
 use credentials::CredentialStore;
 use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, QueryHistoryEntry, SavedQuery, SaveQueryInput};
+use docker::{DockerManager, DockerContainer, DockerImage, DockerVolume, DockerNetwork, DockerInfo, ContainerStats, ContainerLogs, CreateContainerInput, PullImageInput, CreateVolumeInput, CreateNetworkInput, DockerComposeProject};
 use db::init_database;
 use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
 use favorites::{FavoritesManager, Favorite, FavoriteType, ActivityLog, CreateActivityInput};
@@ -59,6 +61,7 @@ pub struct AppState {
     pub favorites_manager: Arc<Mutex<FavoritesManager>>,
     pub nginx_manager: Arc<NginxManager>,
     pub database_manager: Arc<DatabaseManager>,
+    pub docker_manager: Arc<DockerManager>,
     pub ssh_client: Arc<SshClient>,
     pub ssh_key_manager: Arc<SshKeyManager>,
     pub file_browser: Arc<FileBrowser>,
@@ -2280,6 +2283,412 @@ async fn export_ssh_public_key(
 }
 
 // ============================================================================
+// Docker Management Commands
+// ============================================================================
+
+/// Get Docker system info
+#[tauri::command]
+async fn docker_get_info(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<DockerInfo, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.get_info(&server).map_err(|e| e.to_string())
+}
+
+/// List Docker containers
+#[tauri::command]
+async fn docker_list_containers(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    all: bool,
+) -> std::result::Result<Vec<DockerContainer>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.list_containers(&server, all).map_err(|e| e.to_string())
+}
+
+/// Start a container
+#[tauri::command]
+async fn docker_start_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.start_container(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Stop a container
+#[tauri::command]
+async fn docker_stop_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.stop_container(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Restart a container
+#[tauri::command]
+async fn docker_restart_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.restart_container(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Pause a container
+#[tauri::command]
+async fn docker_pause_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.pause_container(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Unpause a container
+#[tauri::command]
+async fn docker_unpause_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.unpause_container(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Remove a container
+#[tauri::command]
+async fn docker_remove_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+    force: bool,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.remove_container(&server, &container_id, force).map_err(|e| e.to_string())
+}
+
+/// Get container logs
+#[tauri::command]
+async fn docker_get_container_logs(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+    tail: u32,
+) -> std::result::Result<ContainerLogs, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.get_container_logs(&server, &container_id, tail).map_err(|e| e.to_string())
+}
+
+/// Get container stats
+#[tauri::command]
+async fn docker_get_container_stats(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+) -> std::result::Result<ContainerStats, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.get_container_stats(&server, &container_id).map_err(|e| e.to_string())
+}
+
+/// Create a new container
+#[tauri::command]
+async fn docker_create_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    input: CreateContainerInput,
+) -> std::result::Result<String, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.create_container(&server, input).map_err(|e| e.to_string())
+}
+
+/// List Docker images
+#[tauri::command]
+async fn docker_list_images(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<DockerImage>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.list_images(&server).map_err(|e| e.to_string())
+}
+
+/// Pull an image
+#[tauri::command]
+async fn docker_pull_image(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    input: PullImageInput,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.pull_image(&server, input).map_err(|e| e.to_string())
+}
+
+/// Remove an image
+#[tauri::command]
+async fn docker_remove_image(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    image_id: String,
+    force: bool,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.remove_image(&server, &image_id, force).map_err(|e| e.to_string())
+}
+
+/// List Docker volumes
+#[tauri::command]
+async fn docker_list_volumes(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<DockerVolume>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.list_volumes(&server).map_err(|e| e.to_string())
+}
+
+/// Create a volume
+#[tauri::command]
+async fn docker_create_volume(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    input: CreateVolumeInput,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.create_volume(&server, input).map_err(|e| e.to_string())
+}
+
+/// Remove a volume
+#[tauri::command]
+async fn docker_remove_volume(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    name: String,
+    force: bool,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.remove_volume(&server, &name, force).map_err(|e| e.to_string())
+}
+
+/// List Docker networks
+#[tauri::command]
+async fn docker_list_networks(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<DockerNetwork>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.list_networks(&server).map_err(|e| e.to_string())
+}
+
+/// Create a network
+#[tauri::command]
+async fn docker_create_network(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    input: CreateNetworkInput,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.create_network(&server, input).map_err(|e| e.to_string())
+}
+
+/// Remove a network
+#[tauri::command]
+async fn docker_remove_network(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    name: String,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.remove_network(&server, &name).map_err(|e| e.to_string())
+}
+
+/// List Docker Compose projects
+#[tauri::command]
+async fn docker_list_compose_projects(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<DockerComposeProject>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.list_compose_projects(&server).map_err(|e| e.to_string())
+}
+
+/// Docker Compose up
+#[tauri::command]
+async fn docker_compose_up(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    project_path: String,
+    detach: bool,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.compose_up(&server, &project_path, detach).map_err(|e| e.to_string())
+}
+
+/// Docker Compose down
+#[tauri::command]
+async fn docker_compose_down(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    project_path: String,
+    remove_volumes: bool,
+) -> std::result::Result<(), String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.compose_down(&server, &project_path, remove_volumes).map_err(|e| e.to_string())
+}
+
+/// Prune Docker resources
+#[tauri::command]
+async fn docker_prune(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    prune_type: String,
+) -> std::result::Result<String, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.prune(&server, &prune_type).map_err(|e| e.to_string())
+}
+
+/// Execute command in container
+#[tauri::command]
+async fn docker_exec_container(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    container_id: String,
+    command: String,
+) -> std::result::Result<String, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+    
+    state.docker_manager.exec_container(&server, &container_id, &command).map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // Database Management Commands
 // ============================================================================
 
@@ -3128,6 +3537,11 @@ pub fn run() {
                     db_pool.clone(),
                 ));
 
+                // Initialize Docker manager
+                let docker_manager = Arc::new(DockerManager::new(
+                    ssh_client.clone(),
+                ));
+
                 // Create app state
                 let state = AppState {
                     server_manager,
@@ -3143,6 +3557,7 @@ pub fn run() {
                     favorites_manager,
                     nginx_manager,
                     database_manager,
+                    docker_manager,
                     ssh_client,
                     ssh_key_manager,
                     file_browser,
@@ -3358,6 +3773,32 @@ pub fn run() {
             db_drop_table,
             db_truncate_table,
             db_search_table_data,
+            // Docker Management commands
+            docker_get_info,
+            docker_list_containers,
+            docker_start_container,
+            docker_stop_container,
+            docker_restart_container,
+            docker_pause_container,
+            docker_unpause_container,
+            docker_remove_container,
+            docker_get_container_logs,
+            docker_get_container_stats,
+            docker_create_container,
+            docker_list_images,
+            docker_pull_image,
+            docker_remove_image,
+            docker_list_volumes,
+            docker_create_volume,
+            docker_remove_volume,
+            docker_list_networks,
+            docker_create_network,
+            docker_remove_network,
+            docker_list_compose_projects,
+            docker_compose_up,
+            docker_compose_down,
+            docker_prune,
+            docker_exec_container,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

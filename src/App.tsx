@@ -13,6 +13,7 @@ import { SnippetList } from "./components/snippets";
 import { SshKeyList } from "./components/ssh-keys";
 import { NginxManager } from "./components/nginx";
 import { DatabaseManager } from "./components/database";
+import { DockerManager } from "./components/docker";
 import { useAppStore, setupEventListeners } from "./store";
 
 function App() {
@@ -139,6 +140,8 @@ function App() {
         return <NginxManager />;
       case "database":
         return <DatabaseManager />;
+      case "docker":
+        return <DockerManager />;
       default:
         return <Dashboard />;
     }

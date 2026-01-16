@@ -4,18 +4,20 @@ use sqlx::SqlitePool;
 use std::path::Path;
 use std::str::FromStr;
 
+/// Initialize the SQLite database.
+/// Sensitive data (passwords, SSH keys) are stored in OS keychain, not in SQLite.
 pub async fn init_database(app_data_dir: &Path) -> Result<SqlitePool> {
     // Ensure the directory exists
     std::fs::create_dir_all(app_data_dir)
         .map_err(|e| AppError::DatabaseError(format!("Failed to create data directory: {}", e)))?;
 
-    let db_path = app_data_dir.join("devops-commander.db");
+    let db_path = app_data_dir.join("cargoship.db");
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
     let options = SqliteConnectOptions::from_str(&db_url)
         .map_err(|e| AppError::DatabaseError(format!("Invalid database URL: {}", e)))?
         .create_if_missing(true)
-        .foreign_keys(true);  // Enable foreign key enforcement for cascade deletes
+        .foreign_keys(true);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -342,14 +344,13 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create activity_log time index: {}", e)))?;
 
-    // Create ssh_keys table for storing generated SSH keys
+    // Create ssh_keys table for storing generated SSH keys (encrypted in keychain)
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS ssh_keys (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             key_type TEXT NOT NULL,
-            private_key TEXT NOT NULL,
             public_key TEXT NOT NULL,
             fingerprint TEXT NOT NULL,
             comment TEXT,
@@ -367,7 +368,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e)))?;
 
-    // Create database_connections table for storing database connection configs
+    // Create database_connections table (passwords stored in keychain, not here)
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS database_connections (
@@ -378,7 +379,6 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
             host TEXT NOT NULL,
             port INTEGER NOT NULL,
             username TEXT NOT NULL,
-            password TEXT NOT NULL,
             database_name TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,

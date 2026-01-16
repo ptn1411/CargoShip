@@ -5,6 +5,8 @@ use sqlx::SqlitePool;
 use ssh_key::{LineEnding, PrivateKey};
 use uuid::Uuid;
 
+const SSH_PRIVATE_KEY_PREFIX: &str = "ssh-private-key";
+
 /// SSH Key type
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -34,7 +36,7 @@ impl std::str::FromStr for SshKeyType {
     }
 }
 
-/// SSH Key stored in database
+/// SSH Key stored in database (public info only)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshKey {
     pub id: String,
@@ -53,7 +55,7 @@ pub struct CreateSshKeyInput {
     pub key_type: SshKeyType,
     pub passphrase: Option<String>,
     pub comment: Option<String>,
-    pub bits: Option<u32>, // For RSA keys (2048, 4096)
+    pub bits: Option<u32>,
 }
 
 /// Result of key generation
@@ -66,7 +68,7 @@ pub struct GeneratedKey {
     pub fingerprint: String,
 }
 
-/// SSH Key Manager
+/// SSH Key Manager - stores private keys in OS keychain for security
 pub struct SshKeyManager {
     db: SqlitePool,
 }
@@ -74,6 +76,35 @@ pub struct SshKeyManager {
 impl SshKeyManager {
     pub fn new(db: SqlitePool) -> Self {
         Self { db }
+    }
+
+    /// Store private key in keychain
+    fn store_private_key(&self, key_id: &str, private_key: &str) -> Result<()> {
+        let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
+        let entry = keyring::Entry::new("devops-commander", &entry_key)
+            .map_err(|e| AppError::CredentialError(format!("Failed to access keychain: {}", e)))?;
+        
+        entry.set_password(private_key)
+            .map_err(|e| AppError::CredentialError(format!("Failed to store private key: {}", e)))
+    }
+
+    /// Retrieve private key from keychain
+    fn retrieve_private_key(&self, key_id: &str) -> Result<String> {
+        let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
+        let entry = keyring::Entry::new("devops-commander", &entry_key)
+            .map_err(|e| AppError::CredentialError(format!("Failed to access keychain: {}", e)))?;
+        
+        entry.get_password()
+            .map_err(|e| AppError::CredentialError(format!("Failed to retrieve private key: {}", e)))
+    }
+
+    /// Delete private key from keychain
+    fn delete_private_key(&self, key_id: &str) -> Result<()> {
+        let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
+        if let Ok(entry) = keyring::Entry::new("devops-commander", &entry_key) {
+            let _ = entry.delete_credential(); // Ignore errors if not found
+        }
+        Ok(())
     }
 
     /// Generate a new SSH key pair
@@ -128,20 +159,22 @@ impl SshKeyManager {
                 .to_string()
         };
 
+        // Store private key in keychain (secure)
+        self.store_private_key(&id, &private_key_pem)?;
+
         let now = Utc::now();
         let key_type_str = input.key_type.to_string();
 
-        // Store in database
+        // Store public info in database (no private key)
         sqlx::query(
             r#"
-            INSERT INTO ssh_keys (id, name, key_type, private_key, public_key, fingerprint, comment, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ssh_keys (id, name, key_type, public_key, fingerprint, comment, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
         .bind(&input.name)
         .bind(&key_type_str)
-        .bind(&private_key_pem)
         .bind(&public_key_str)
         .bind(&fingerprint)
         .bind(&input.comment)
@@ -221,22 +254,17 @@ impl SshKeyManager {
         }))
     }
 
-    /// Get private key content (for connection use)
+    /// Get private key content from keychain (for connection use)
     pub async fn get_private_key(&self, id: &str) -> Result<String> {
-        let row = sqlx::query_as::<_, (String,)>(
-            "SELECT private_key FROM ssh_keys WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to get private key: {}", e)))?;
-
-        row.map(|(pk,)| pk)
-            .ok_or_else(|| AppError::NotFound(format!("SSH key not found: {}", id)))
+        self.retrieve_private_key(id)
     }
 
-    /// Delete an SSH key
+    /// Delete an SSH key (from both database and keychain)
     pub async fn delete_key(&self, id: &str) -> Result<()> {
+        // Delete from keychain first
+        self.delete_private_key(id)?;
+
+        // Delete from database
         let result = sqlx::query("DELETE FROM ssh_keys WHERE id = ?")
             .bind(id)
             .execute(&self.db)
@@ -252,7 +280,6 @@ impl SshKeyManager {
 
     /// Update SSH key name/comment
     pub async fn update_key(&self, id: &str, name: Option<String>, comment: Option<String>) -> Result<SshKey> {
-        // Build update query dynamically
         let mut updates = Vec::new();
         let mut params: Vec<String> = Vec::new();
 

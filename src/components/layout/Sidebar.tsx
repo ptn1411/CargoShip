@@ -1,11 +1,11 @@
-import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText, LayoutDashboard, Code2, Key, Globe, Database, Users } from "lucide-react";
+import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText, LayoutDashboard, Code2, Key, Globe, Database, Users, Box } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 interface SidebarProps {
-  activeItem: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
-  onItemSelect: (item: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
+  activeItem: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database" | "docker";
+  onItemSelect: (item: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database" | "docker") => void;
 }
 
 const navItems = [
@@ -19,6 +19,7 @@ const navItems = [
   { id: "ssh-keys" as const, label: "SSH Keys", icon: Key },
   { id: "nginx" as const, label: "Nginx", icon: Globe },
   { id: "database" as const, label: "Database", icon: Database },
+  { id: "docker" as const, label: "Docker", icon: Box },
 ];
 
 function ThemeToggle() {
@@ -82,6 +83,11 @@ function ThemeToggle() {
 export function Sidebar({ activeItem, onItemSelect }: SidebarProps) {
   return (
     <aside className="w-16 bg-secondary border-r border-border flex flex-col items-center py-4">
+      {/* Logo */}
+      <div className="mb-4 pb-4 border-b border-border">
+        <img src="/logo.png" alt="CargoShip" className="w-10 h-10 rounded-lg" />
+      </div>
+
       {/* Navigation Items */}
       <nav className="flex flex-col items-center gap-2 flex-1">
         {navItems.map((item) => {

@@ -25,6 +25,7 @@ pub struct DatabaseConnection {
 }
 
 /// SQLite row mapping for database connections
+/// Note: password is NOT stored in SQLite, it's in the OS keychain
 #[derive(Debug, sqlx::FromRow)]
 pub struct DbConnectionRow {
     pub id: String,
@@ -34,7 +35,6 @@ pub struct DbConnectionRow {
     pub host: String,
     pub port: i32,
     pub username: String,
-    pub password: String,
     pub database_name: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -56,7 +56,7 @@ impl From<DbConnectionRow> for DatabaseConnection {
             host: row.host,
             port: row.port as u16,
             username: row.username,
-            password: row.password,
+            password: String::new(), // Password retrieved from keychain separately
             database: row.database_name,
             created_at: row.created_at,
             updated_at: row.updated_at,
