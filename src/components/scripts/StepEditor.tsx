@@ -8,9 +8,11 @@ import {
   Play,
   RotateCcw,
   Copy,
+  Terminal,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Step, OnError } from "../../lib/tauri";
+import { SnippetPicker } from "../snippets";
 
 interface StepEditorProps {
   steps: Step[];
@@ -205,9 +207,16 @@ function StepItem({
   onDragOver,
   onDragEnd,
 }: StepItemProps) {
+  const [isSnippetPickerOpen, setIsSnippetPickerOpen] = useState(false);
+
   // Add command
   const addCommand = () => {
     onUpdate({ commands: [...step.commands, ""] });
+  };
+
+  // Add command from snippet
+  const addCommandFromSnippet = (command: string) => {
+    onUpdate({ commands: [...step.commands, command] });
   };
 
   // Update command
@@ -346,6 +355,13 @@ function StepItem({
               >
                 + Add command
               </button>
+              <button
+                onClick={() => setIsSnippetPickerOpen(true)}
+                className="text-sm text-primary hover:underline ml-4 flex items-center gap-1"
+              >
+                <Terminal className="w-3 h-3" />
+                Insert snippet
+              </button>
             </div>
           </div>
 
@@ -452,6 +468,14 @@ function StepItem({
           </div>
         </div>
       )}
+
+      {/* Snippet Picker Dialog */}
+      <SnippetPicker
+        open={isSnippetPickerOpen}
+        onOpenChange={setIsSnippetPickerOpen}
+        onSelect={addCommandFromSnippet}
+        title="Insert Snippet as Command"
+      />
     </div>
   );
 }

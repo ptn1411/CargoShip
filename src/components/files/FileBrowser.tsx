@@ -12,6 +12,7 @@ import { SudoPasswordDialog } from "./SudoPasswordDialog";
 import { PermissionsDialog } from "./PermissionsDialog";
 import { FileEntry, fileApi, credentialApi } from "../../lib/tauri";
 import { ServerSelectionGrid } from "../ui";
+import { DropZone } from "../transfer";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 // Dialog state types
@@ -538,19 +539,28 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
         </div>
       )}
 
-      {/* File Tree */}
-      <FileTree
-        entries={fileEntries}
-        isLoading={isLoadingFiles}
-        onNavigate={handleNavigate}
-        onOpenFile={handleOpenFile}
-        onNewFile={handleNewFile}
-        onNewFolder={handleNewFolder}
-        onRename={handleRename}
-        onDelete={handleDelete}
-        onUpload={handleUpload}
-        onChangePermissions={handleChangePermissions}
-      />
+      {/* File Tree with Drop Zone */}
+      <DropZone
+        remotePath={currentPath}
+        className="flex-1 min-h-0"
+        onFilesDropped={() => {
+          // Open upload dialog when files are dropped
+          handleUpload();
+        }}
+      >
+        <FileTree
+          entries={fileEntries}
+          isLoading={isLoadingFiles}
+          onNavigate={handleNavigate}
+          onOpenFile={handleOpenFile}
+          onNewFile={handleNewFile}
+          onNewFolder={handleNewFolder}
+          onRename={handleRename}
+          onDelete={handleDelete}
+          onUpload={handleUpload}
+          onChangePermissions={handleChangePermissions}
+        />
+      </DropZone>
 
       {/* New File Dialog */}
       <InputDialog

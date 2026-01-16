@@ -1,11 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Sidebar, MainContent, StatusBar } from "./components/layout";
 import { ServerList } from "./components/servers";
 import { FileBrowser } from "./components/files";
 import { TerminalContainer } from "./components/terminal";
 import { ScriptManagement } from "./components/scripts";
 import { FileEditor, EditorModal } from "./components/editor";
+import { Dashboard } from "./components/dashboard";
 import { ToastContainer } from "./components/ui";
+import { CommandPalette } from "./components/quick-actions";
+import { SnippetList } from "./components/snippets";
+import { SshKeyList } from "./components/ssh-keys";
+import { NginxManager } from "./components/nginx";
+import { DatabaseManager } from "./components/database";
 import { useAppStore, setupEventListeners } from "./store";
 
 function App() {
@@ -21,11 +27,27 @@ function App() {
   
   // Editor modal state
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
+  
+  // Command palette state - Requirements 7.3
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Count online connections
   const connectionCount = Object.values(serverStatus).filter(
     (status) => status === "online"
   ).length;
+
+  // Command palette keyboard shortcut (Ctrl+P) - Requirements 7.3
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+      e.preventDefault();
+      setIsCommandPaletteOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   // Setup event listeners and load initial data on mount
   useEffect(() => {
@@ -37,6 +59,11 @@ function App() {
 
     // Load editor settings on app start
     loadEditorSettings();
+
+    // Request notification permission for alerts
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
 
     return () => {
       if (cleanup) {
@@ -79,6 +106,8 @@ function App() {
 
   const renderContent = () => {
     switch (sidebarItem) {
+      case "dashboard":
+        return <Dashboard />;
       case "servers":
         return <ServerList />;
       case "files":
@@ -99,8 +128,16 @@ function App() {
         return <TerminalContainer />;
       case "scripts":
         return <ScriptManagement />;
+      case "snippets":
+        return <SnippetList />;
+      case "ssh-keys":
+        return <SshKeyList />;
+      case "nginx":
+        return <NginxManager />;
+      case "database":
+        return <DatabaseManager />;
       default:
-        return <ServerList />;
+        return <Dashboard />;
     }
   };
 
@@ -120,6 +157,12 @@ function App() {
       <EditorModal 
         isOpen={isEditorModalOpen} 
         onClose={() => setIsEditorModalOpen(false)} 
+      />
+      
+      {/* Command Palette - Requirements 7.3 */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
       />
     </div>
   );

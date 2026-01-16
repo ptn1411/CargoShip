@@ -15,6 +15,7 @@ import {
 import { cn } from "../../lib/utils";
 import { TerminalView } from "./TerminalView";
 import { LocalTerminalView } from "./LocalTerminalView";
+import { TerminalSettingsData } from "./TerminalSettings";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 // Layout types
@@ -43,6 +44,7 @@ interface TerminalSnapLayoutProps {
   activeTerminalId: string | null;
   onSetActive: (id: string) => void;
   onClose: (id: string, isLocal?: boolean) => void;
+  terminalSettings?: TerminalSettingsData;
 }
 
 interface LayoutOption {
@@ -81,6 +83,7 @@ export function TerminalSnapLayout({
   activeTerminalId,
   onSetActive,
   onClose,
+  terminalSettings,
 }: TerminalSnapLayoutProps) {
   const [layout, setLayout] = useState<LayoutType>("single");
   const [panelAssignments, setPanelAssignments] = useState<(string | null)[]>(
@@ -214,12 +217,14 @@ export function TerminalSnapLayout({
                   sessionId={session.id}
                   isActive={isActive}
                   alwaysVisible={true}
+                  terminalSettings={terminalSettings}
                 />
               ) : (
                 <TerminalView
                   sessionId={session.id}
                   isActive={isActive}
                   alwaysVisible={true}
+                  terminalSettings={terminalSettings}
                 />
               )}
             </div>

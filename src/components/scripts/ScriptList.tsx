@@ -20,6 +20,7 @@ import { useAppStore } from "../../store";
 import { DeploymentScript } from "../../lib/tauri";
 import { parseError } from "../../lib/errorHandler";
 import { ConfirmDialog } from "../files/ConfirmDialog";
+import { FavoriteButton } from "../quick-actions";
 
 interface ScriptListProps {
   onEditScript: (script: DeploymentScript) => void;
@@ -313,6 +314,8 @@ function ScriptCard({
     >
       {/* Actions Menu */}
       <div className="absolute top-3 right-3 flex items-center gap-1">
+        {/* Favorite Button */}
+        <FavoriteButton itemType="script" itemId={script.id} size="sm" />
         {/* Run Button */}
         {onRun && (
           <button

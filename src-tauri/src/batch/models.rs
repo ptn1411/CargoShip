@@ -23,6 +23,16 @@ pub struct HealthCheckResult {
     pub error: Option<String>,
 }
 
+/// Event payload for batch operation progress
+/// Requirements: 2.3
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchProgressPayload {
+    pub completed: usize,
+    pub total: usize,
+    pub current_server: String,
+    pub current_server_id: String,
+}
+
 /// Summary of batch operation results
 /// Requirements: 2.5
 #[derive(Debug, Clone, Serialize, Deserialize)]

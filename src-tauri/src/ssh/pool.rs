@@ -248,6 +248,9 @@ pub fn authenticate_session(
                 .map_err(|e| AppError::AuthenticationFailed(format!("Password authentication failed: {}", e)))?;
         }
         AuthMethod::SshKey => {
+            // Check if server has ssh_key_id (key from database)
+            // If so, the key content will be passed via credential_store
+            // Otherwise, use the key_path from credential_store
             let key_path = credential_store.retrieve_key_path(&server.id)?;
             let key_path_obj = std::path::Path::new(&key_path);
             
@@ -318,6 +321,93 @@ pub fn authenticate_session(
             }
         }
     }
+    Ok(())
+}
+
+/// Authenticate using SSH key content directly (from database)
+pub fn authenticate_with_key_content(
+    session: &Session,
+    username: &str,
+    private_key_pem: &str,
+    passphrase: Option<&str>,
+) -> Result<()> {
+    use std::io::Write;
+    
+    // Parse the key to determine type
+    let private_key = if let Some(pass) = passphrase.filter(|p| !p.is_empty()) {
+        let encrypted_key = ssh_key::PrivateKey::from_openssh(private_key_pem.as_bytes())
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e)))?;
+        encrypted_key.decrypt(pass.as_bytes())
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to decrypt SSH key: {}", e)))?
+    } else {
+        ssh_key::PrivateKey::from_openssh(private_key_pem.as_bytes())
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e)))?
+    };
+    
+    let key_type = match private_key.algorithm() {
+        ssh_key::Algorithm::Ed25519 => crate::ssh::KeyType::Ed25519,
+        ssh_key::Algorithm::Rsa { .. } => crate::ssh::KeyType::Rsa,
+        ssh_key::Algorithm::Ecdsa { .. } => crate::ssh::KeyType::Ecdsa,
+        _ => crate::ssh::KeyType::Unknown,
+    };
+    
+    // Get unencrypted key in OpenSSH format
+    let openssh_data = private_key.to_openssh(ssh_key::LineEnding::LF)
+        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?;
+    
+    // For Ed25519, try SSH agent first
+    if key_type == crate::ssh::KeyType::Ed25519 {
+        // Write temp key for agent
+        let mut temp_file = tempfile::NamedTempFile::new()
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e)))?;
+        temp_file.write_all(openssh_data.as_bytes())
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e)))?;
+        temp_file.flush()
+            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e)))?;
+        
+        crate::ssh::ensure_key_in_agent(temp_file.path(), None)?;
+        
+        if let Ok(mut agent) = session.agent() {
+            if agent.connect().is_ok() {
+                if agent.list_identities().is_ok() {
+                    for identity in agent.identities().unwrap_or_default() {
+                        if agent.userauth(username, &identity).is_ok() {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+        
+        return Err(AppError::AuthenticationFailed(
+            "Ed25519 key authentication failed. SSH Agent may not be running.\n\
+            Please run in PowerShell (Admin):\n\
+            Set-Service ssh-agent -StartupType Automatic\n\
+            Start-Service ssh-agent\n\n\
+            Then restart the application.".to_string()
+        ));
+    }
+    
+    // For RSA/ECDSA, write to temp file and authenticate
+    let mut temp_file = tempfile::NamedTempFile::new()
+        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e)))?;
+    temp_file.write_all(openssh_data.as_bytes())
+        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e)))?;
+    temp_file.flush()
+        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e)))?;
+    
+    session.userauth_pubkey_file(
+        username,
+        None,
+        temp_file.path(),
+        None,
+    ).map_err(|e| {
+        AppError::AuthenticationFailed(format!(
+            "SSH key authentication failed: {}. Key type: {:?}",
+            e, key_type
+        ))
+    })?;
+    
     Ok(())
 }
 

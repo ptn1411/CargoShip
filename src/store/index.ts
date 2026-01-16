@@ -36,6 +36,39 @@ import {
   templateApi,
   deploymentApi,
   rollbackApi,
+  // Phase 4 - Advanced Features
+  ServerGroup,
+  CreateGroupInput,
+  UpdateGroupInput,
+  BatchResult,
+  HealthCheckResult,
+  BatchSummary,
+  HealthCheckSummary,
+  TransferStatus,
+  TransferRequest,
+  ServerMetrics,
+  ServerStatusInfo,
+  AlertConfig,
+  Alert,
+  MetricPoint,
+  CreateAlertInput,
+  Snippet,
+  CreateSnippetInput,
+  UpdateSnippetInput,
+  SnippetImportResult,
+  Favorite,
+  FavoriteType,
+  ActivityLog,
+  groupApi,
+  batchApi,
+  transferApi,
+  monitorApi,
+  snippetApi,
+  favoritesApi,
+  activityApi,
+  phase4EventApi,
+  AlertTriggeredPayload,
+  MetricsUpdatedPayload,
 } from "../lib/tauri";
 import { getLanguageFromPath } from "../lib/languageMap";
 
@@ -157,8 +190,52 @@ export interface AppState {
   scriptError: string | null;
   deploymentError: string | null;
 
+  // Server Groups (Phase 4)
+  groups: ServerGroup[];
+  selectedGroupId: string | null;
+  isLoadingGroups: boolean;
+  groupError: string | null;
+
+  // Batch Operations (Phase 4)
+  batchResults: BatchResult[];
+  batchSummary: BatchSummary | null;
+  healthCheckResults: HealthCheckResult[];
+  healthCheckSummary: HealthCheckSummary | null;
+  isExecutingBatch: boolean;
+  batchError: string | null;
+
+  // File Transfer (Phase 4)
+  transfers: TransferStatus[];
+  transferQueue: TransferStatus[];
+  activeTransferId: string | null;
+  isTransferring: boolean;
+  transferError: string | null;
+
+  // Monitoring (Phase 4)
+  serverMetrics: Record<string, ServerMetrics>;
+  serverStatusList: ServerStatusInfo[];
+  metricsHistory: Record<string, MetricPoint[]>;
+  alerts: AlertConfig[];
+  triggeredAlerts: Alert[];
+  isMonitoring: boolean;
+  isLoadingMetrics: boolean;
+  monitorError: string | null;
+
+  // Snippets (Phase 4)
+  snippets: Snippet[];
+  selectedSnippetId: string | null;
+  snippetCategories: string[];
+  isLoadingSnippets: boolean;
+  snippetError: string | null;
+
+  // Favorites & Activity (Phase 4)
+  favorites: Favorite[];
+  recentActivity: ActivityLog[];
+  isLoadingFavorites: boolean;
+  isLoadingActivity: boolean;
+
   // UI
-  sidebarItem: "servers" | "files" | "terminal" | "scripts";
+  sidebarItem: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
   theme: "light" | "dark" | "system";
 
   // Toasts
@@ -224,8 +301,61 @@ export interface AppState {
   setActiveDeployment: (id: string | null) => void;
   clearDeploymentLogs: (deploymentId: string) => void;
 
+  // Group Actions (Phase 4)
+  loadGroups: () => Promise<void>;
+  createGroup: (input: CreateGroupInput) => Promise<ServerGroup>;
+  updateGroup: (id: string, input: UpdateGroupInput) => Promise<ServerGroup>;
+  deleteGroup: (id: string) => Promise<void>;
+  addServerToGroup: (groupId: string, serverId: string) => Promise<void>;
+  removeServerFromGroup: (groupId: string, serverId: string) => Promise<void>;
+  selectGroup: (id: string | null) => void;
+
+  // Batch Actions (Phase 4)
+  executeBatchCommand: (serverIds: string[], command: string) => Promise<BatchResult[]>;
+  executeBatchHealthCheck: (serverIds: string[]) => Promise<HealthCheckResult[]>;
+  clearBatchResults: () => void;
+
+  // Transfer Actions (Phase 4)
+  queueUploads: (serverId: string, transfers: TransferRequest[]) => Promise<string[]>;
+  queueDownloads: (serverId: string, transfers: TransferRequest[]) => Promise<string[]>;
+  cancelTransfer: (transferId: string) => Promise<void>;
+  setTransferSpeedLimit: (bytesPerSecond: number | null) => Promise<void>;
+  updateTransferStatus: (status: TransferStatus) => void;
+  removeTransfer: (transferId: string) => void;
+
+  // Monitor Actions (Phase 4)
+  loadServerMetrics: (serverId: string) => Promise<void>;
+  loadAllServerStatus: () => Promise<void>;
+  loadMetricsHistory: (serverId: string, metric: string, hours: number) => Promise<void>;
+  createAlert: (input: CreateAlertInput) => Promise<AlertConfig>;
+  deleteAlert: (id: string) => Promise<void>;
+  loadAlerts: () => Promise<void>;
+  startMonitoring: (intervalSeconds: number) => Promise<void>;
+  stopMonitoring: () => Promise<void>;
+  updateServerMetrics: (serverId: string, metrics: ServerMetrics) => void;
+  addTriggeredAlert: (alert: Alert) => void;
+
+  // Snippet Actions (Phase 4)
+  loadSnippets: () => Promise<void>;
+  createSnippet: (input: CreateSnippetInput) => Promise<Snippet>;
+  updateSnippet: (id: string, input: UpdateSnippetInput) => Promise<Snippet>;
+  deleteSnippet: (id: string) => Promise<void>;
+  searchSnippets: (query: string) => Promise<Snippet[]>;
+  exportSnippets: () => Promise<string>;
+  importSnippets: (json: string) => Promise<SnippetImportResult>;
+  selectSnippet: (id: string | null) => void;
+
+  // Favorites Actions (Phase 4)
+  loadFavorites: () => Promise<void>;
+  addFavorite: (itemType: FavoriteType, itemId: string) => Promise<void>;
+  removeFavorite: (itemType: FavoriteType, itemId: string) => Promise<void>;
+  isFavorite: (itemType: FavoriteType, itemId: string) => boolean;
+
+  // Activity Actions (Phase 4)
+  loadRecentActivity: (limit?: number) => Promise<void>;
+
   // UI Actions
-  setSidebarItem: (item: "servers" | "files" | "terminal" | "scripts") => void;
+  setSidebarItem: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
   setTheme: (theme: "light" | "dark" | "system") => void;
   clearErrors: () => void;
 
@@ -286,8 +416,52 @@ export const useAppStore = create<AppState>((set, get) => ({
   scriptError: null,
   deploymentError: null,
 
+  // Initial State - Server Groups (Phase 4)
+  groups: [],
+  selectedGroupId: null,
+  isLoadingGroups: false,
+  groupError: null,
+
+  // Initial State - Batch Operations (Phase 4)
+  batchResults: [],
+  batchSummary: null,
+  healthCheckResults: [],
+  healthCheckSummary: null,
+  isExecutingBatch: false,
+  batchError: null,
+
+  // Initial State - File Transfer (Phase 4)
+  transfers: [],
+  transferQueue: [],
+  activeTransferId: null,
+  isTransferring: false,
+  transferError: null,
+
+  // Initial State - Monitoring (Phase 4)
+  serverMetrics: {},
+  serverStatusList: [],
+  metricsHistory: {},
+  alerts: [],
+  triggeredAlerts: [],
+  isMonitoring: false,
+  isLoadingMetrics: false,
+  monitorError: null,
+
+  // Initial State - Snippets (Phase 4)
+  snippets: [],
+  selectedSnippetId: null,
+  snippetCategories: [],
+  isLoadingSnippets: false,
+  snippetError: null,
+
+  // Initial State - Favorites & Activity (Phase 4)
+  favorites: [],
+  recentActivity: [],
+  isLoadingFavorites: false,
+  isLoadingActivity: false,
+
   // Initial State - UI
-  sidebarItem: "servers",
+  sidebarItem: "dashboard",
   theme: "system",
 
   // Initial State - Toasts
@@ -1096,8 +1270,564 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  // ============================================================================
+  // Group Actions (Phase 4)
+  // ============================================================================
+
+  loadGroups: async () => {
+    set({ isLoadingGroups: true, groupError: null });
+    try {
+      const groups = await groupApi.list();
+      set({ groups, isLoadingGroups: false });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ groupError: errorMsg, isLoadingGroups: false });
+    }
+  },
+
+  createGroup: async (input: CreateGroupInput) => {
+    const { showError, showSuccess } = get();
+    set({ groupError: null });
+    try {
+      const group = await groupApi.create(input);
+      set((state) => ({
+        groups: [...state.groups, group],
+      }));
+      showSuccess("Group created", group.name);
+      return group;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ groupError: errorMsg });
+      showError("Failed to create group", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  updateGroup: async (id: string, input: UpdateGroupInput) => {
+    const { showError, showSuccess } = get();
+    set({ groupError: null });
+    try {
+      const group = await groupApi.update(id, input);
+      set((state) => ({
+        groups: state.groups.map((g) => (g.id === id ? group : g)),
+      }));
+      showSuccess("Group updated", group.name);
+      return group;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ groupError: errorMsg });
+      showError("Failed to update group", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  deleteGroup: async (id: string) => {
+    const { showError, showSuccess } = get();
+    set({ groupError: null });
+    try {
+      await groupApi.delete(id);
+      set((state) => ({
+        groups: state.groups.filter((g) => g.id !== id),
+        selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
+      }));
+      showSuccess("Group deleted");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ groupError: errorMsg });
+      showError("Failed to delete group", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  addServerToGroup: async (groupId: string, serverId: string) => {
+    const { showError } = get();
+    try {
+      await groupApi.addServer(groupId, serverId);
+      set((state) => ({
+        groups: state.groups.map((g) =>
+          g.id === groupId
+            ? { ...g, server_ids: [...g.server_ids, serverId] }
+            : g
+        ),
+      }));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to add server to group", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  removeServerFromGroup: async (groupId: string, serverId: string) => {
+    const { showError } = get();
+    try {
+      await groupApi.removeServer(groupId, serverId);
+      set((state) => ({
+        groups: state.groups.map((g) =>
+          g.id === groupId
+            ? { ...g, server_ids: g.server_ids.filter((id) => id !== serverId) }
+            : g
+        ),
+      }));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to remove server from group", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  selectGroup: (id: string | null) => {
+    set({ selectedGroupId: id });
+  },
+
+  // ============================================================================
+  // Batch Actions (Phase 4)
+  // ============================================================================
+
+  executeBatchCommand: async (serverIds: string[], command: string) => {
+    const { showError, showInfo } = get();
+    set({ isExecutingBatch: true, batchError: null, batchResults: [], batchSummary: null });
+    try {
+      showInfo("Batch command started", `Executing on ${serverIds.length} servers...`);
+      const results = await batchApi.executeCommand(serverIds, command);
+      const summary: BatchSummary = {
+        total: results.length,
+        success_count: results.filter((r) => r.success).length,
+        failure_count: results.filter((r) => !r.success).length,
+        results,
+      };
+      set({ batchResults: results, batchSummary: summary, isExecutingBatch: false });
+      return results;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ batchError: errorMsg, isExecutingBatch: false });
+      showError("Batch command failed", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  executeBatchHealthCheck: async (serverIds: string[]) => {
+    const { showError, showInfo } = get();
+    set({ isExecutingBatch: true, batchError: null, healthCheckResults: [], healthCheckSummary: null });
+    try {
+      showInfo("Health check started", `Checking ${serverIds.length} servers...`);
+      const results = await batchApi.healthCheck(serverIds);
+      const summary: HealthCheckSummary = {
+        total: results.length,
+        online_count: results.filter((r) => r.connected).length,
+        offline_count: results.filter((r) => !r.connected).length,
+        results,
+      };
+      set({ healthCheckResults: results, healthCheckSummary: summary, isExecutingBatch: false });
+      return results;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ batchError: errorMsg, isExecutingBatch: false });
+      showError("Health check failed", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  clearBatchResults: () => {
+    set({
+      batchResults: [],
+      batchSummary: null,
+      healthCheckResults: [],
+      healthCheckSummary: null,
+      batchError: null,
+    });
+  },
+
+  // ============================================================================
+  // Transfer Actions (Phase 4)
+  // ============================================================================
+
+  queueUploads: async (serverId: string, transfers: TransferRequest[]) => {
+    const { showError, showInfo } = get();
+    set({ transferError: null });
+    try {
+      showInfo("Uploads queued", `${transfers.length} file(s) queued for upload`);
+      const transferIds = await transferApi.queueUploads(serverId, transfers);
+      return transferIds;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ transferError: errorMsg });
+      showError("Failed to queue uploads", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  queueDownloads: async (serverId: string, transfers: TransferRequest[]) => {
+    const { showError, showInfo } = get();
+    set({ transferError: null });
+    try {
+      showInfo("Downloads queued", `${transfers.length} file(s) queued for download`);
+      const transferIds = await transferApi.queueDownloads(serverId, transfers);
+      return transferIds;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ transferError: errorMsg });
+      showError("Failed to queue downloads", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  cancelTransfer: async (transferId: string) => {
+    const { showError, showWarning } = get();
+    try {
+      await transferApi.cancel(transferId);
+      set((state) => ({
+        transfers: state.transfers.filter((t) => t.id !== transferId),
+        transferQueue: state.transferQueue.filter((t) => t.id !== transferId),
+      }));
+      showWarning("Transfer cancelled");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to cancel transfer", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  setTransferSpeedLimit: async (bytesPerSecond: number | null) => {
+    const { showError, showSuccess } = get();
+    try {
+      await transferApi.setSpeedLimit(bytesPerSecond);
+      showSuccess("Speed limit updated", bytesPerSecond ? `${Math.round(bytesPerSecond / 1024)} KB/s` : "Unlimited");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to set speed limit", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  updateTransferStatus: (status: TransferStatus) => {
+    set((state) => {
+      const existingIndex = state.transfers.findIndex((t) => t.id === status.id);
+      if (existingIndex >= 0) {
+        const newTransfers = [...state.transfers];
+        newTransfers[existingIndex] = status;
+        return { transfers: newTransfers };
+      } else {
+        return { transfers: [...state.transfers, status] };
+      }
+    });
+  },
+
+  removeTransfer: (transferId: string) => {
+    set((state) => ({
+      transfers: state.transfers.filter((t) => t.id !== transferId),
+      transferQueue: state.transferQueue.filter((t) => t.id !== transferId),
+    }));
+  },
+
+  // ============================================================================
+  // Monitor Actions (Phase 4)
+  // ============================================================================
+
+  loadServerMetrics: async (serverId: string) => {
+    const { showError } = get();
+    set({ isLoadingMetrics: true, monitorError: null });
+    try {
+      const metrics = await monitorApi.getServerMetrics(serverId);
+      set((state) => ({
+        serverMetrics: { ...state.serverMetrics, [serverId]: metrics },
+        isLoadingMetrics: false,
+      }));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ monitorError: errorMsg, isLoadingMetrics: false });
+      showError("Failed to load metrics", errorMsg);
+    }
+  },
+
+  loadAllServerStatus: async () => {
+    set({ isLoadingMetrics: true, monitorError: null });
+    try {
+      const statusList = await monitorApi.getAllServerStatus();
+      set({ serverStatusList: statusList, isLoadingMetrics: false });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ monitorError: errorMsg, isLoadingMetrics: false });
+    }
+  },
+
+  loadMetricsHistory: async (serverId: string, metric: string, hours: number) => {
+    const { showError } = get();
+    try {
+      const history = await monitorApi.getMetricsHistory(serverId, metric, hours);
+      const key = `${serverId}:${metric}`;
+      set((state) => ({
+        metricsHistory: { ...state.metricsHistory, [key]: history },
+      }));
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to load metrics history", errorMsg);
+    }
+  },
+
+  createAlert: async (input: CreateAlertInput) => {
+    const { showError, showSuccess } = get();
+    try {
+      const alert = await monitorApi.setAlert(input);
+      set((state) => ({
+        alerts: [...state.alerts, alert],
+      }));
+      showSuccess("Alert created");
+      return alert;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to create alert", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  deleteAlert: async (id: string) => {
+    const { showError, showSuccess } = get();
+    try {
+      await monitorApi.deleteAlert(id);
+      set((state) => ({
+        alerts: state.alerts.filter((a) => a.id !== id),
+      }));
+      showSuccess("Alert deleted");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to delete alert", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  loadAlerts: async () => {
+    try {
+      const alerts = await monitorApi.listAlerts();
+      set({ alerts });
+    } catch (error) {
+      console.error("Failed to load alerts:", error);
+    }
+  },
+
+  startMonitoring: async (intervalSeconds: number) => {
+    const { showError, showInfo } = get();
+    try {
+      await monitorApi.startMonitoring(intervalSeconds);
+      set({ isMonitoring: true });
+      showInfo("Monitoring started", `Refresh interval: ${intervalSeconds}s`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to start monitoring", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  stopMonitoring: async () => {
+    const { showInfo } = get();
+    try {
+      await monitorApi.stopMonitoring();
+      set({ isMonitoring: false });
+      showInfo("Monitoring stopped");
+    } catch (error) {
+      console.error("Failed to stop monitoring:", error);
+    }
+  },
+
+  updateServerMetrics: (serverId: string, metrics: ServerMetrics) => {
+    set((state) => ({
+      serverMetrics: { ...state.serverMetrics, [serverId]: metrics },
+    }));
+  },
+
+  addTriggeredAlert: (alert: Alert) => {
+    set((state) => ({
+      triggeredAlerts: [alert, ...state.triggeredAlerts].slice(0, 100), // Keep last 100 alerts
+    }));
+  },
+
+  // ============================================================================
+  // Snippet Actions (Phase 4)
+  // ============================================================================
+
+  loadSnippets: async () => {
+    set({ isLoadingSnippets: true, snippetError: null });
+    try {
+      const snippets = await snippetApi.list();
+      const categories = [...new Set(snippets.map((s) => s.category))];
+      set({ snippets, snippetCategories: categories, isLoadingSnippets: false });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ snippetError: errorMsg, isLoadingSnippets: false });
+    }
+  },
+
+  createSnippet: async (input: CreateSnippetInput) => {
+    const { showError, showSuccess } = get();
+    set({ snippetError: null });
+    try {
+      const snippet = await snippetApi.create(input);
+      set((state) => {
+        const categories = state.snippetCategories.includes(snippet.category)
+          ? state.snippetCategories
+          : [...state.snippetCategories, snippet.category];
+        return {
+          snippets: [...state.snippets, snippet],
+          snippetCategories: categories,
+        };
+      });
+      showSuccess("Snippet created", snippet.name);
+      return snippet;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ snippetError: errorMsg });
+      showError("Failed to create snippet", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  updateSnippet: async (id: string, input: UpdateSnippetInput) => {
+    const { showError, showSuccess } = get();
+    set({ snippetError: null });
+    try {
+      const snippet = await snippetApi.update(id, input);
+      set((state) => ({
+        snippets: state.snippets.map((s) => (s.id === id ? snippet : s)),
+      }));
+      showSuccess("Snippet updated", snippet.name);
+      return snippet;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ snippetError: errorMsg });
+      showError("Failed to update snippet", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  deleteSnippet: async (id: string) => {
+    const { showError, showSuccess } = get();
+    set({ snippetError: null });
+    try {
+      await snippetApi.delete(id);
+      set((state) => ({
+        snippets: state.snippets.filter((s) => s.id !== id),
+        selectedSnippetId: state.selectedSnippetId === id ? null : state.selectedSnippetId,
+      }));
+      showSuccess("Snippet deleted");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      set({ snippetError: errorMsg });
+      showError("Failed to delete snippet", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  searchSnippets: async (query: string) => {
+    const { showError } = get();
+    try {
+      const snippets = await snippetApi.search(query);
+      return snippets;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Search failed", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  exportSnippets: async () => {
+    const { showError, showSuccess } = get();
+    try {
+      const json = await snippetApi.export();
+      showSuccess("Snippets exported");
+      return json;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Export failed", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  importSnippets: async (json: string) => {
+    const { showError, showSuccess, loadSnippets } = get();
+    try {
+      const result = await snippetApi.import(json);
+      await loadSnippets(); // Reload to get updated list
+      showSuccess("Snippets imported", `${result.imported} imported, ${result.skipped} skipped`);
+      return result;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Import failed", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  selectSnippet: (id: string | null) => {
+    set({ selectedSnippetId: id });
+  },
+
+  // ============================================================================
+  // Favorites Actions (Phase 4)
+  // ============================================================================
+
+  loadFavorites: async () => {
+    set({ isLoadingFavorites: true });
+    try {
+      const favorites = await favoritesApi.list();
+      set({ favorites, isLoadingFavorites: false });
+    } catch (error) {
+      console.error("Failed to load favorites:", error);
+      set({ isLoadingFavorites: false });
+    }
+  },
+
+  addFavorite: async (itemType: FavoriteType, itemId: string) => {
+    const { showError, showSuccess } = get();
+    try {
+      await favoritesApi.add(itemType, itemId);
+      // Reload favorites to get the new item with its ID
+      const favorites = await favoritesApi.list();
+      set({ favorites });
+      showSuccess("Added to favorites");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to add favorite", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  removeFavorite: async (itemType: FavoriteType, itemId: string) => {
+    const { showError, showSuccess } = get();
+    try {
+      await favoritesApi.remove(itemType, itemId);
+      set((state) => ({
+        favorites: state.favorites.filter(
+          (f) => !(f.item_type === itemType && f.item_id === itemId)
+        ),
+      }));
+      showSuccess("Removed from favorites");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      showError("Failed to remove favorite", errorMsg);
+      throw new Error(errorMsg);
+    }
+  },
+
+  isFavorite: (itemType: FavoriteType, itemId: string) => {
+    const { favorites } = get();
+    return favorites.some((f) => f.item_type === itemType && f.item_id === itemId);
+  },
+
+  // ============================================================================
+  // Activity Actions (Phase 4)
+  // ============================================================================
+
+  loadRecentActivity: async (limit: number = 50) => {
+    set({ isLoadingActivity: true });
+    try {
+      const recentActivity = await activityApi.getRecent(limit);
+      set({ recentActivity, isLoadingActivity: false });
+    } catch (error) {
+      console.error("Failed to load recent activity:", error);
+      set({ isLoadingActivity: false });
+    }
+  },
+
   // UI Actions
-  setSidebarItem: (item: "servers" | "files" | "terminal" | "scripts") => {
+  setSidebarItem: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => {
     set({ sidebarItem: item });
   },
 
@@ -1113,6 +1843,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       editorError: null,
       scriptError: null,
       deploymentError: null,
+      groupError: null,
+      batchError: null,
+      transferError: null,
+      monitorError: null,
+      snippetError: null,
     });
   },
 
@@ -1174,11 +1909,33 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 // Event listener setup - call this once when app initializes
 let eventCleanup: EventListenerCleanup | null = null;
+let phase4Cleanup: (() => void)[] = [];
+
+// Desktop notification helper
+async function showDesktopNotification(title: string, body: string, icon?: string) {
+  // Check if notifications are supported and permission is granted
+  if (!("Notification" in window)) {
+    console.warn("Desktop notifications not supported");
+    return;
+  }
+
+  if (Notification.permission === "granted") {
+    new Notification(title, { body, icon });
+  } else if (Notification.permission !== "denied") {
+    const permission = await Notification.requestPermission();
+    if (permission === "granted") {
+      new Notification(title, { body, icon });
+    }
+  }
+}
 
 export async function setupEventListeners(): Promise<() => void> {
   // Prevent duplicate setup
   if (eventCleanup) {
-    return () => eventCleanup?.unsubscribeAll();
+    return () => {
+      eventCleanup?.unsubscribeAll();
+      phase4Cleanup.forEach((cleanup) => cleanup());
+    };
   }
 
   const store = useAppStore.getState();
@@ -1194,12 +1951,54 @@ export async function setupEventListeners(): Promise<() => void> {
     },
   });
 
+  // Phase 4 event listeners
+  const alertUnlisten = await phase4EventApi.onAlertTriggered((payload: AlertTriggeredPayload) => {
+    // Find server name
+    const servers = useAppStore.getState().servers;
+    const server = servers.find((s) => s.id === payload.server_id);
+    const serverName = server?.name || payload.server_id;
+
+    // Create alert object and add to triggered alerts
+    const alert: Alert = {
+      alert_config_id: payload.alert_id,
+      server_id: payload.server_id,
+      server_name: serverName,
+      metric: payload.metric as Alert["metric"],
+      condition: "greater_than", // Default, actual condition from backend
+      threshold: payload.threshold,
+      actual_value: payload.value,
+      triggered_at: new Date().toISOString(),
+    };
+    store.addTriggeredAlert(alert);
+
+    // Show desktop notification
+    const metricLabel = payload.metric.replace("_", " ");
+    showDesktopNotification(
+      `Alert: ${serverName}`,
+      `${metricLabel} is ${payload.value.toFixed(1)}% (threshold: ${payload.threshold}%)`,
+    );
+
+    // Also show in-app toast
+    store.showWarning(
+      `Alert: ${serverName}`,
+      `${metricLabel} is ${payload.value.toFixed(1)}% (threshold: ${payload.threshold}%)`
+    );
+  });
+  phase4Cleanup.push(alertUnlisten);
+
+  const metricsUnlisten = await phase4EventApi.onMetricsUpdated((payload: MetricsUpdatedPayload) => {
+    store.updateServerMetrics(payload.server_id, payload.metrics);
+  });
+  phase4Cleanup.push(metricsUnlisten);
+
   // Return cleanup function
   return () => {
     if (eventCleanup) {
       eventCleanup.unsubscribeAll();
       eventCleanup = null;
     }
+    phase4Cleanup.forEach((cleanup) => cleanup());
+    phase4Cleanup = [];
   };
 }
 
@@ -1325,4 +2124,152 @@ export const useDeploymentActions = () => ({
   getRollbackInfo: useAppStore((state) => state.getRollbackInfo),
   setActiveDeployment: useAppStore((state) => state.setActiveDeployment),
   clearDeploymentLogs: useAppStore((state) => state.clearDeploymentLogs),
+});
+
+// ============================================================================
+// Server Groups selector hooks (Phase 4)
+// ============================================================================
+
+export const useGroups = () => useAppStore((state) => state.groups);
+export const useSelectedGroup = () => {
+  const groups = useAppStore((state) => state.groups);
+  const selectedId = useAppStore((state) => state.selectedGroupId);
+  return selectedId ? groups.find((g) => g.id === selectedId) ?? null : null;
+};
+export const useSelectedGroupId = () => useAppStore((state) => state.selectedGroupId);
+export const useIsLoadingGroups = () => useAppStore((state) => state.isLoadingGroups);
+export const useGroupError = () => useAppStore((state) => state.groupError);
+
+export const useGroupActions = () => ({
+  loadGroups: useAppStore((state) => state.loadGroups),
+  createGroup: useAppStore((state) => state.createGroup),
+  updateGroup: useAppStore((state) => state.updateGroup),
+  deleteGroup: useAppStore((state) => state.deleteGroup),
+  addServerToGroup: useAppStore((state) => state.addServerToGroup),
+  removeServerFromGroup: useAppStore((state) => state.removeServerFromGroup),
+  selectGroup: useAppStore((state) => state.selectGroup),
+});
+
+// ============================================================================
+// Batch Operations selector hooks (Phase 4)
+// ============================================================================
+
+export const useBatchResults = () => useAppStore((state) => state.batchResults);
+export const useBatchSummary = () => useAppStore((state) => state.batchSummary);
+export const useHealthCheckResults = () => useAppStore((state) => state.healthCheckResults);
+export const useHealthCheckSummary = () => useAppStore((state) => state.healthCheckSummary);
+export const useIsExecutingBatch = () => useAppStore((state) => state.isExecutingBatch);
+export const useBatchError = () => useAppStore((state) => state.batchError);
+
+export const useBatchActions = () => ({
+  executeBatchCommand: useAppStore((state) => state.executeBatchCommand),
+  executeBatchHealthCheck: useAppStore((state) => state.executeBatchHealthCheck),
+  clearBatchResults: useAppStore((state) => state.clearBatchResults),
+});
+
+// ============================================================================
+// File Transfer selector hooks (Phase 4)
+// ============================================================================
+
+export const useTransfers = () => useAppStore((state) => state.transfers);
+export const useTransferQueue = () => useAppStore((state) => state.transferQueue);
+export const useActiveTransfer = () => {
+  const transfers = useAppStore((state) => state.transfers);
+  const activeId = useAppStore((state) => state.activeTransferId);
+  return activeId ? transfers.find((t) => t.id === activeId) ?? null : null;
+};
+export const useIsTransferring = () => useAppStore((state) => state.isTransferring);
+export const useTransferError = () => useAppStore((state) => state.transferError);
+
+export const useTransferActions = () => ({
+  queueUploads: useAppStore((state) => state.queueUploads),
+  queueDownloads: useAppStore((state) => state.queueDownloads),
+  cancelTransfer: useAppStore((state) => state.cancelTransfer),
+  setTransferSpeedLimit: useAppStore((state) => state.setTransferSpeedLimit),
+  updateTransferStatus: useAppStore((state) => state.updateTransferStatus),
+  removeTransfer: useAppStore((state) => state.removeTransfer),
+});
+
+// ============================================================================
+// Monitoring selector hooks (Phase 4)
+// ============================================================================
+
+export const useServerMetrics = (serverId: string) =>
+  useAppStore((state) => state.serverMetrics[serverId] ?? null);
+export const useAllServerMetrics = () => useAppStore((state) => state.serverMetrics);
+export const useServerStatusList = () => useAppStore((state) => state.serverStatusList);
+export const useMetricsHistory = (serverId: string, metric: string) =>
+  useAppStore((state) => state.metricsHistory[`${serverId}:${metric}`] ?? []);
+export const useAlerts = () => useAppStore((state) => state.alerts);
+export const useTriggeredAlerts = () => useAppStore((state) => state.triggeredAlerts);
+export const useIsMonitoring = () => useAppStore((state) => state.isMonitoring);
+export const useIsLoadingMetrics = () => useAppStore((state) => state.isLoadingMetrics);
+export const useMonitorError = () => useAppStore((state) => state.monitorError);
+
+export const useMonitorActions = () => ({
+  loadServerMetrics: useAppStore((state) => state.loadServerMetrics),
+  loadAllServerStatus: useAppStore((state) => state.loadAllServerStatus),
+  loadMetricsHistory: useAppStore((state) => state.loadMetricsHistory),
+  createAlert: useAppStore((state) => state.createAlert),
+  deleteAlert: useAppStore((state) => state.deleteAlert),
+  loadAlerts: useAppStore((state) => state.loadAlerts),
+  startMonitoring: useAppStore((state) => state.startMonitoring),
+  stopMonitoring: useAppStore((state) => state.stopMonitoring),
+  updateServerMetrics: useAppStore((state) => state.updateServerMetrics),
+  addTriggeredAlert: useAppStore((state) => state.addTriggeredAlert),
+});
+
+// ============================================================================
+// Snippets selector hooks (Phase 4)
+// ============================================================================
+
+export const useSnippets = () => useAppStore((state) => state.snippets);
+export const useSelectedSnippet = () => {
+  const snippets = useAppStore((state) => state.snippets);
+  const selectedId = useAppStore((state) => state.selectedSnippetId);
+  return selectedId ? snippets.find((s) => s.id === selectedId) ?? null : null;
+};
+export const useSelectedSnippetId = () => useAppStore((state) => state.selectedSnippetId);
+export const useSnippetCategories = () => useAppStore((state) => state.snippetCategories);
+export const useSnippetsByCategory = (category: string) =>
+  useAppStore((state) => state.snippets.filter((s) => s.category === category));
+export const useIsLoadingSnippets = () => useAppStore((state) => state.isLoadingSnippets);
+export const useSnippetError = () => useAppStore((state) => state.snippetError);
+
+export const useSnippetActions = () => ({
+  loadSnippets: useAppStore((state) => state.loadSnippets),
+  createSnippet: useAppStore((state) => state.createSnippet),
+  updateSnippet: useAppStore((state) => state.updateSnippet),
+  deleteSnippet: useAppStore((state) => state.deleteSnippet),
+  searchSnippets: useAppStore((state) => state.searchSnippets),
+  exportSnippets: useAppStore((state) => state.exportSnippets),
+  importSnippets: useAppStore((state) => state.importSnippets),
+  selectSnippet: useAppStore((state) => state.selectSnippet),
+});
+
+// ============================================================================
+// Favorites & Activity selector hooks (Phase 4)
+// ============================================================================
+
+export const useFavorites = () => useAppStore((state) => state.favorites);
+export const useFavoriteServers = () =>
+  useAppStore((state) => state.favorites.filter((f) => f.item_type === "server"));
+export const useFavoriteScripts = () =>
+  useAppStore((state) => state.favorites.filter((f) => f.item_type === "script"));
+export const useFavoriteSnippets = () =>
+  useAppStore((state) => state.favorites.filter((f) => f.item_type === "snippet"));
+export const useIsLoadingFavorites = () => useAppStore((state) => state.isLoadingFavorites);
+
+export const useRecentActivity = () => useAppStore((state) => state.recentActivity);
+export const useIsLoadingActivity = () => useAppStore((state) => state.isLoadingActivity);
+
+export const useFavoritesActions = () => ({
+  loadFavorites: useAppStore((state) => state.loadFavorites),
+  addFavorite: useAppStore((state) => state.addFavorite),
+  removeFavorite: useAppStore((state) => state.removeFavorite),
+  isFavorite: useAppStore((state) => state.isFavorite),
+});
+
+export const useActivityActions = () => ({
+  loadRecentActivity: useAppStore((state) => state.loadRecentActivity),
 });

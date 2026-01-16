@@ -3,6 +3,7 @@ import { cn } from "../../lib/utils";
 import { Server as ServerType } from "../../lib/tauri";
 import { ServerConnectionStatus } from "../../store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { FavoriteButton } from "../quick-actions";
 
 interface ServerCardProps {
   server: ServerType;
@@ -57,6 +58,7 @@ export function ServerCard({
     >
       {/* Status Indicator */}
       <div className="absolute top-3 right-3 flex items-center gap-2">
+        <FavoriteButton itemType="server" itemId={server.id} size="sm" />
         <ConnectionStatusIndicator status={status} />
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>

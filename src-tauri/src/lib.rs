@@ -1,30 +1,43 @@
 pub mod batch;
 pub mod cache;
 pub mod credentials;
+pub mod database;
 pub mod db;
 pub mod deployments;
 pub mod error;
+pub mod favorites;
 pub mod files;
 pub mod groups;
+pub mod monitor;
+pub mod nginx;
 pub mod scripts;
 pub mod server;
+pub mod snippets;
 pub mod ssh;
 pub mod sync;
 pub mod terminal;
+pub mod transfer;
 
 use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthCheckSummary};
 use cache::CacheManager;
 use credentials::CredentialStore;
+use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, DatabaseType};
 use db::init_database;
 use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
+use favorites::{FavoritesManager, Favorite, FavoriteType, ActivityLog, CreateActivityInput};
 use files::{Breadcrumb, FileBrowser, FileContent, FileManager, path_to_breadcrumbs};
 use groups::{GroupManager, ServerGroup, CreateGroupInput, UpdateGroupInput};
+use monitor::{MonitorService, ServerMetrics, ServerStatus, MetricType, MetricPoint, AlertConfig, Alert, CreateAlertInput, UpdateAlertInput};
+use nginx::{NginxManager, NginxDomain, NginxStatus, SslCertificate, SslResult, ConfigSnippet, CreateDomainInput, UpdateDomainInput};
 use scripts::{ScriptManager, DeploymentScript, CreateScriptInput, UpdateScriptInput, ValidationResult, TemplateLibrary, TemplateInfo, RollbackManager, RollbackInfo, ScriptEngine, ExecutionConfig, DryRunResult};
 use server::{CreateServerInput, Server, ServerManager, UpdateServerInput};
+use snippets::{SnippetLibrary, Snippet, CreateSnippetInput, UpdateSnippetInput, ImportResult as SnippetImportResult};
 use ssh::{CommandOutput, ConnectionStatus, ServerInfo, SshClient};
 use ssh::ConnectionPool;
+use ssh::{SshKeyManager, SshKey, CreateSshKeyInput, GeneratedKey};
 use sync::{ConflictResolver, ConflictResolution, ConflictStatus, FileDiff, SyncEngine};
 use terminal::TerminalManager;
+use transfer::{TransferManager, TransferRequest, TransferStatus};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -41,7 +54,13 @@ pub struct AppState {
     pub rollback_manager: Arc<RollbackManager>,
     pub script_engine: Arc<ScriptEngine>,
     pub batch_executor: Arc<BatchExecutor>,
+    pub monitor_service: Arc<MonitorService>,
+    pub snippet_library: Arc<Mutex<SnippetLibrary>>,
+    pub favorites_manager: Arc<Mutex<FavoritesManager>>,
+    pub nginx_manager: Arc<NginxManager>,
+    pub database_manager: Arc<DatabaseManager>,
     pub ssh_client: Arc<SshClient>,
+    pub ssh_key_manager: Arc<SshKeyManager>,
     pub file_browser: Arc<FileBrowser>,
     pub file_manager: Arc<FileManager>,
     pub cache_manager: Arc<CacheManager>,
@@ -52,6 +71,7 @@ pub struct AppState {
     pub credential_store: Arc<CredentialStore>,
     pub active_streams: Arc<Mutex<HashSet<String>>>,
     pub active_local_streams: Arc<Mutex<HashSet<String>>>,
+    pub transfer_manager: Arc<TransferManager>,
 }
 
 // Event Payloads for Tauri Events
@@ -530,6 +550,117 @@ async fn list_terminal_sessions(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
     Ok(state.terminal_manager.active_session_ids())
+}
+
+// ============================================================================
+// Tmux/Screen Session Detection
+// ============================================================================
+
+/// Represents a detected multiplexer session (tmux or screen)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MultiplexerSession {
+    /// Session name/ID
+    pub name: String,
+    /// Type of multiplexer (tmux or screen)
+    pub multiplexer_type: String,
+    /// Whether the session is attached
+    pub attached: bool,
+    /// Number of windows (for tmux)
+    pub windows: Option<u32>,
+    /// Creation time if available
+    pub created_at: Option<String>,
+}
+
+/// Detect tmux and screen sessions on a remote server
+/// Requirements: 6.3
+#[tauri::command]
+async fn detect_multiplexer_sessions(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<MultiplexerSession>, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+
+    let mut sessions = Vec::new();
+
+    // Detect tmux sessions
+    let tmux_cmd = "tmux list-sessions -F '#{session_name}:#{session_attached}:#{session_windows}:#{session_created}' 2>/dev/null || true";
+    if let Ok(output) = state.ssh_client.execute_command(&server, tmux_cmd, Some(10)) {
+        if output.exit_code == 0 && !output.stdout.trim().is_empty() {
+            for line in output.stdout.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() >= 2 {
+                    sessions.push(MultiplexerSession {
+                        name: parts[0].to_string(),
+                        multiplexer_type: "tmux".to_string(),
+                        attached: parts.get(1).map(|s| *s == "1").unwrap_or(false),
+                        windows: parts.get(2).and_then(|s| s.parse().ok()),
+                        created_at: parts.get(3).map(|s| s.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    // Detect screen sessions
+    let screen_cmd = "screen -ls 2>/dev/null | grep -E '^\\s+[0-9]+\\.' || true";
+    if let Ok(output) = state.ssh_client.execute_command(&server, screen_cmd, Some(10)) {
+        if output.exit_code == 0 && !output.stdout.trim().is_empty() {
+            for line in output.stdout.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                // Parse screen output format: "12345.session_name (Attached)" or "(Detached)"
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if !parts.is_empty() {
+                    let name_part = parts[0];
+                    // Extract session name (after the PID)
+                    let name = if let Some(dot_pos) = name_part.find('.') {
+                        name_part[dot_pos + 1..].to_string()
+                    } else {
+                        name_part.to_string()
+                    };
+                    
+                    let attached = line.contains("(Attached)");
+                    
+                    sessions.push(MultiplexerSession {
+                        name,
+                        multiplexer_type: "screen".to_string(),
+                        attached,
+                        windows: None,
+                        created_at: None,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(sessions)
+}
+
+/// Attach to a tmux or screen session
+/// Requirements: 6.3
+#[tauri::command]
+async fn attach_multiplexer_session(
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    multiplexer_type: String,
+    session_name: String,
+) -> std::result::Result<(), String> {
+    // Write the attach command to the terminal session
+    let attach_cmd = match multiplexer_type.as_str() {
+        "tmux" => format!("tmux attach-session -t {}\n", session_name),
+        "screen" => format!("screen -r {}\n", session_name),
+        _ => return Err(format!("Unknown multiplexer type: {}", multiplexer_type)),
+    };
+
+    let data = attach_cmd.into_bytes();
+    state.terminal_manager.write_to_session(&session_id, &data)
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -1402,6 +1533,1358 @@ async fn get_rollback_info(
         .map_err(|e| e.to_string())
 }
 
+// ============================================================================
+// Transfer Commands (Phase 4 - Task 5)
+// ============================================================================
+
+/// Queue multiple files for upload
+/// Requirements: 3.1, 3.3
+#[tauri::command]
+async fn queue_uploads(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    transfers: Vec<TransferRequest>,
+) -> std::result::Result<Vec<String>, String> {
+    state.transfer_manager
+        .queue_uploads(&server_id, transfers)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Queue multiple files for download
+/// Requirements: 3.2, 3.3
+#[tauri::command]
+async fn queue_downloads(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    transfers: Vec<TransferRequest>,
+) -> std::result::Result<Vec<String>, String> {
+    state.transfer_manager
+        .queue_downloads(&server_id, transfers)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Cancel a transfer
+/// Requirements: 3.6
+#[tauri::command]
+async fn cancel_transfer(
+    state: tauri::State<'_, AppState>,
+    transfer_id: String,
+) -> std::result::Result<(), String> {
+    state.transfer_manager
+        .cancel_transfer(&transfer_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get status of a specific transfer
+/// Requirements: 3.3
+#[tauri::command]
+async fn get_transfer_status(
+    state: tauri::State<'_, AppState>,
+    transfer_id: String,
+) -> std::result::Result<TransferStatus, String> {
+    state.transfer_manager
+        .get_transfer_status(&transfer_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get all transfers
+/// Requirements: 3.3
+#[tauri::command]
+async fn get_all_transfers(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<TransferStatus>, String> {
+    Ok(state.transfer_manager.get_all_transfers().await)
+}
+
+/// Set transfer speed limit
+/// Requirements: 3.8
+#[tauri::command]
+async fn set_transfer_speed_limit(
+    state: tauri::State<'_, AppState>,
+    bytes_per_second: Option<u64>,
+) -> std::result::Result<(), String> {
+    state.transfer_manager
+        .set_speed_limit(bytes_per_second)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Monitoring Commands (Phase 4 - Task 6)
+// ============================================================================
+
+/// Get metrics for a specific server
+/// Requirements: 4.2
+#[tauri::command]
+async fn get_server_metrics(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<ServerMetrics, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", server_id))?;
+
+    state.monitor_service
+        .get_server_metrics(&server)
+        .map_err(|e| e.to_string())
+}
+
+/// Get status of all servers
+/// Requirements: 4.1
+#[tauri::command]
+async fn get_all_server_status(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<ServerStatus>, String> {
+    state.monitor_service
+        .get_all_server_status()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get metrics history for a server
+/// Requirements: 4.5
+#[tauri::command]
+async fn get_metrics_history(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    metric: String,
+    hours: u32,
+) -> std::result::Result<Vec<MetricPoint>, String> {
+    let metric_type: MetricType = metric.parse()
+        .map_err(|e: String| e)?;
+    
+    state.monitor_service
+        .get_metrics_history(&server_id, metric_type, hours)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Create a new alert
+/// Requirements: 4.3, 4.6
+#[tauri::command]
+async fn create_alert(
+    state: tauri::State<'_, AppState>,
+    input: CreateAlertInput,
+) -> std::result::Result<AlertConfig, String> {
+    state.monitor_service
+        .create_alert(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all alerts
+/// Requirements: 4.3
+#[tauri::command]
+async fn list_alerts(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<AlertConfig>, String> {
+    state.monitor_service
+        .list_alerts()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update an alert
+/// Requirements: 4.3
+#[tauri::command]
+async fn update_alert(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: UpdateAlertInput,
+) -> std::result::Result<AlertConfig, String> {
+    state.monitor_service
+        .update_alert(&id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete an alert
+/// Requirements: 4.3
+#[tauri::command]
+async fn delete_alert(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.monitor_service
+        .delete_alert(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check alerts and return triggered ones
+/// Requirements: 4.6
+#[tauri::command]
+async fn check_alerts(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<Alert>, String> {
+    state.monitor_service
+        .check_alerts()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Start monitoring with specified interval
+/// Requirements: 4.7
+#[tauri::command]
+async fn start_monitoring(
+    state: tauri::State<'_, AppState>,
+    interval_secs: u64,
+) -> std::result::Result<(), String> {
+    state.monitor_service
+        .start_monitoring(interval_secs)
+        .await;
+    Ok(())
+}
+
+/// Stop monitoring
+/// Requirements: 4.7
+#[tauri::command]
+async fn stop_monitoring(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    state.monitor_service.stop_monitoring();
+    Ok(())
+}
+
+/// Run a single monitoring cycle manually
+#[tauri::command]
+async fn run_monitoring_cycle(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    state.monitor_service
+        .run_monitoring_cycle()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Snippet Library Commands (Phase 4 - Task 7)
+// ============================================================================
+
+/// Create a new snippet
+/// Requirements: 5.1
+#[tauri::command]
+async fn create_snippet(
+    state: tauri::State<'_, AppState>,
+    input: CreateSnippetInput,
+) -> std::result::Result<Snippet, String> {
+    state.snippet_library.lock().await
+        .create_snippet(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get a snippet by ID
+/// Requirements: 5.2
+#[tauri::command]
+async fn get_snippet(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<Snippet, String> {
+    state.snippet_library.lock().await
+        .get_snippet(&id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Snippet not found: {}", id))
+}
+
+/// List all snippets
+/// Requirements: 5.2
+#[tauri::command]
+async fn list_snippets(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<Snippet>, String> {
+    state.snippet_library.lock().await
+        .list_snippets()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List snippets by category
+/// Requirements: 5.2
+#[tauri::command]
+async fn list_snippets_by_category(
+    state: tauri::State<'_, AppState>,
+    category: String,
+) -> std::result::Result<Vec<Snippet>, String> {
+    state.snippet_library.lock().await
+        .list_by_category(&category)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Search snippets by name or command content
+/// Requirements: 5.3
+#[tauri::command]
+async fn search_snippets(
+    state: tauri::State<'_, AppState>,
+    query: String,
+) -> std::result::Result<Vec<Snippet>, String> {
+    state.snippet_library.lock().await
+        .search_snippets(&query)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update a snippet
+/// Requirements: 5.1
+#[tauri::command]
+async fn update_snippet(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: UpdateSnippetInput,
+) -> std::result::Result<Snippet, String> {
+    state.snippet_library.lock().await
+        .update_snippet(&id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a snippet
+/// Requirements: 5.1
+#[tauri::command]
+async fn delete_snippet(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.snippet_library.lock().await
+        .delete_snippet(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Export all snippets to JSON
+/// Requirements: 5.6
+#[tauri::command]
+async fn export_snippets(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    state.snippet_library.lock().await
+        .export_snippets()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Import snippets from JSON
+/// Requirements: 5.7
+#[tauri::command]
+async fn import_snippets(
+    state: tauri::State<'_, AppState>,
+    json: String,
+) -> std::result::Result<SnippetImportResult, String> {
+    state.snippet_library.lock().await
+        .import_snippets(&json)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all unique snippet categories
+#[tauri::command]
+async fn list_snippet_categories(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<String>, String> {
+    state.snippet_library.lock().await
+        .list_categories()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Favorites & Activity Commands (Phase 4 - Task 9.6)
+// ============================================================================
+
+/// Add an item to favorites
+/// Requirements: 7.2
+#[tauri::command]
+async fn add_favorite(
+    state: tauri::State<'_, AppState>,
+    item_type: String,
+    item_id: String,
+) -> std::result::Result<Favorite, String> {
+    let fav_type: FavoriteType = item_type.parse()
+        .map_err(|e: String| e)?;
+    
+    state.favorites_manager.lock().await
+        .add_favorite(fav_type, &item_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Remove an item from favorites
+/// Requirements: 7.2
+#[tauri::command]
+async fn remove_favorite(
+    state: tauri::State<'_, AppState>,
+    item_type: String,
+    item_id: String,
+) -> std::result::Result<(), String> {
+    let fav_type: FavoriteType = item_type.parse()
+        .map_err(|e: String| e)?;
+    
+    state.favorites_manager.lock().await
+        .remove_favorite(fav_type, &item_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all favorites
+/// Requirements: 7.2
+#[tauri::command]
+async fn list_favorites(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<Favorite>, String> {
+    state.favorites_manager.lock().await
+        .list_favorites()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List favorites by type
+#[tauri::command]
+async fn list_favorites_by_type(
+    state: tauri::State<'_, AppState>,
+    item_type: String,
+) -> std::result::Result<Vec<Favorite>, String> {
+    let fav_type: FavoriteType = item_type.parse()
+        .map_err(|e: String| e)?;
+    
+    state.favorites_manager.lock().await
+        .list_favorites_by_type(fav_type)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if an item is favorited
+#[tauri::command]
+async fn is_favorite(
+    state: tauri::State<'_, AppState>,
+    item_type: String,
+    item_id: String,
+) -> std::result::Result<bool, String> {
+    let fav_type: FavoriteType = item_type.parse()
+        .map_err(|e: String| e)?;
+    
+    state.favorites_manager.lock().await
+        .is_favorite(fav_type, &item_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Log an activity
+#[tauri::command]
+async fn log_activity(
+    state: tauri::State<'_, AppState>,
+    action: String,
+    item_type: Option<String>,
+    item_id: Option<String>,
+    details: Option<String>,
+) -> std::result::Result<ActivityLog, String> {
+    let input = CreateActivityInput {
+        action,
+        item_type,
+        item_id,
+        details,
+    };
+    
+    state.favorites_manager.lock().await
+        .log_activity(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get recent activity
+/// Requirements: 7.4
+#[tauri::command]
+async fn get_recent_activity(
+    state: tauri::State<'_, AppState>,
+    limit: u32,
+) -> std::result::Result<Vec<ActivityLog>, String> {
+    state.favorites_manager.lock().await
+        .get_recent_activity(limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Nginx Management Commands
+// ============================================================================
+
+/// Get Nginx status on a server
+#[tauri::command]
+async fn nginx_get_status(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<NginxStatus, String> {
+    state.nginx_manager
+        .get_status(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all domains on a server
+#[tauri::command]
+async fn nginx_list_domains(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<NginxDomain>, String> {
+    state.nginx_manager
+        .list_domains(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Create a new domain
+#[tauri::command]
+async fn nginx_create_domain(
+    state: tauri::State<'_, AppState>,
+    input: CreateDomainInput,
+) -> std::result::Result<NginxDomain, String> {
+    state.nginx_manager
+        .create_domain(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update a domain
+#[tauri::command]
+async fn nginx_update_domain(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+    input: UpdateDomainInput,
+) -> std::result::Result<NginxDomain, String> {
+    state.nginx_manager
+        .update_domain(&server_id, &domain_name, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a domain
+#[tauri::command]
+async fn nginx_delete_domain(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .delete_domain(&server_id, &domain_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Enable or disable a domain
+#[tauri::command]
+async fn nginx_toggle_domain(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+    enable: bool,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .toggle_domain(&server_id, &domain_name, enable)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get domain config content
+#[tauri::command]
+async fn nginx_get_domain_config(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+) -> std::result::Result<String, String> {
+    state.nginx_manager
+        .get_domain_config(&server_id, &domain_name)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Save domain config content
+#[tauri::command]
+async fn nginx_save_domain_config(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+    content: String,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .save_domain_config(&server_id, &domain_name, &content)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Issue SSL certificate using Certbot
+#[tauri::command]
+async fn nginx_issue_ssl(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+    domain_name: String,
+    email: String,
+) -> std::result::Result<SslResult, String> {
+    state.nginx_manager
+        .issue_ssl(&server_id, &domain_name, &email)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Renew SSL certificates
+#[tauri::command]
+async fn nginx_renew_ssl(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<String, String> {
+    state.nginx_manager
+        .renew_ssl(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List SSL certificates
+#[tauri::command]
+async fn nginx_list_ssl_certificates(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<Vec<SslCertificate>, String> {
+    state.nginx_manager
+        .list_ssl_certificates(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get available config snippets
+#[tauri::command]
+async fn nginx_get_snippets(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<ConfigSnippet>, String> {
+    Ok(state.nginx_manager.get_snippets())
+}
+
+/// Restart Nginx
+#[tauri::command]
+async fn nginx_restart(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .restart_nginx(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Start Nginx
+#[tauri::command]
+async fn nginx_start(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .start_nginx(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Stop Nginx
+#[tauri::command]
+async fn nginx_stop(
+    state: tauri::State<'_, AppState>,
+    server_id: String,
+) -> std::result::Result<(), String> {
+    state.nginx_manager
+        .stop_nginx(&server_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// SSH Key Management Commands
+// ============================================================================
+
+/// Generate a new SSH key pair
+#[tauri::command]
+async fn generate_ssh_key(
+    state: tauri::State<'_, AppState>,
+    input: CreateSshKeyInput,
+) -> std::result::Result<GeneratedKey, String> {
+    state.ssh_key_manager
+        .generate_key(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all SSH keys (without private key data)
+#[tauri::command]
+async fn list_ssh_keys(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<SshKey>, String> {
+    state.ssh_key_manager
+        .list_keys()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get a specific SSH key by ID
+#[tauri::command]
+async fn get_ssh_key(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<SshKey, String> {
+    state.ssh_key_manager
+        .get_key(&id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("SSH key not found: {}", id))
+}
+
+/// Delete an SSH key
+#[tauri::command]
+async fn delete_ssh_key(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.ssh_key_manager
+        .delete_key(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update SSH key name/comment
+#[tauri::command]
+async fn update_ssh_key(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    comment: Option<String>,
+) -> std::result::Result<SshKey, String> {
+    state.ssh_key_manager
+        .update_key(&id, name, comment)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Export public key in OpenSSH format
+#[tauri::command]
+async fn export_ssh_public_key(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<String, String> {
+    state.ssh_key_manager
+        .export_public_key(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
+// Database Management Commands
+// ============================================================================
+
+/// Add a database connection
+#[tauri::command]
+async fn db_add_connection(
+    state: tauri::State<'_, AppState>,
+    input: CreateConnectionInput,
+) -> std::result::Result<DatabaseConnection, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let conn = DatabaseConnection {
+        id: uuid::Uuid::new_v4().to_string(),
+        server_id: input.server_id,
+        name: input.name,
+        db_type: input.db_type,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        password: input.password,
+        database: input.database,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    
+    state.database_manager.add_connection(conn.clone()).await;
+    Ok(conn)
+}
+
+/// List all database connections
+#[tauri::command]
+async fn db_list_connections(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<DatabaseConnection>, String> {
+    Ok(state.database_manager.list_connections().await)
+}
+
+/// Get a database connection by ID
+#[tauri::command]
+async fn db_get_connection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<DatabaseConnection, String> {
+    state.database_manager
+        .get_connection(&id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", id))
+}
+
+/// Remove a database connection
+#[tauri::command]
+async fn db_remove_connection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.database_manager.remove_connection(&id).await;
+    Ok(())
+}
+
+/// Test database connection
+#[tauri::command]
+async fn db_test_connection(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+) -> std::result::Result<ConnectionTestResult, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .test_connection(&server, &conn)
+        .map_err(|e| e.to_string())
+}
+
+/// List databases
+#[tauri::command]
+async fn db_list_databases(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+) -> std::result::Result<Vec<DatabaseInfo>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .list_databases(&server, &conn)
+        .map_err(|e| e.to_string())
+}
+
+/// List tables in a database
+#[tauri::command]
+async fn db_list_tables(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> std::result::Result<Vec<TableInfo>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .list_tables(&server, &conn, &database)
+        .map_err(|e| e.to_string())
+}
+
+/// Get table columns
+#[tauri::command]
+async fn db_get_columns(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> std::result::Result<Vec<ColumnInfo>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .get_table_columns(&server, &conn, &database, &table)
+        .map_err(|e| e.to_string())
+}
+
+/// Get table indexes
+#[tauri::command]
+async fn db_get_indexes(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> std::result::Result<Vec<IndexInfo>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .get_table_indexes(&server, &conn, &database, &table)
+        .map_err(|e| e.to_string())
+}
+
+/// Execute a SQL query
+#[tauri::command]
+async fn db_execute_query(
+    state: tauri::State<'_, AppState>,
+    input: ExecuteQueryInput,
+) -> std::result::Result<QueryResult, String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .execute_query(&server, &conn, &input.database, &input.query)
+        .map_err(|e| e.to_string())
+}
+
+/// Get table data with pagination
+#[tauri::command]
+async fn db_get_table_data(
+    state: tauri::State<'_, AppState>,
+    input: FetchTableDataInput,
+) -> std::result::Result<TableData, String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .get_table_data(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Update a row
+#[tauri::command]
+async fn db_update_row(
+    state: tauri::State<'_, AppState>,
+    input: UpdateRowInput,
+) -> std::result::Result<i64, String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .update_row(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Insert a row
+#[tauri::command]
+async fn db_insert_row(
+    state: tauri::State<'_, AppState>,
+    input: InsertRowInput,
+) -> std::result::Result<i64, String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .insert_row(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Delete rows
+#[tauri::command]
+async fn db_delete_rows(
+    state: tauri::State<'_, AppState>,
+    input: DeleteRowsInput,
+) -> std::result::Result<i64, String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .delete_rows(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// List database users
+#[tauri::command]
+async fn db_list_users(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+) -> std::result::Result<Vec<DatabaseUser>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .list_users(&server, &conn)
+        .map_err(|e| e.to_string())
+}
+
+/// Create a database user
+#[tauri::command]
+async fn db_create_user(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    input: CreateUserInput,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .create_user(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Drop a database user
+#[tauri::command]
+async fn db_drop_user(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    username: String,
+    host: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .drop_user(&server, &conn, &username, &host)
+        .map_err(|e| e.to_string())
+}
+
+/// Create a database
+#[tauri::command]
+async fn db_create_database(
+    state: tauri::State<'_, AppState>,
+    input: CreateDatabaseInput,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .create_database(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Drop a database
+#[tauri::command]
+async fn db_drop_database(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .drop_database(&server, &conn, &database)
+        .map_err(|e| e.to_string())
+}
+
+/// Get user privileges
+#[tauri::command]
+async fn db_get_user_privileges(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    username: String,
+    host: String,
+) -> std::result::Result<Vec<String>, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .get_user_privileges(&server, &conn, &username, &host)
+        .map_err(|e| e.to_string())
+}
+
+/// Grant privileges to a user
+#[tauri::command]
+async fn db_grant_privileges(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    username: String,
+    host: String,
+    privileges: Vec<String>,
+    database: Option<String>,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .grant_privileges(&server, &conn, &username, &host, &privileges, database.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Revoke privileges from a user
+#[tauri::command]
+async fn db_revoke_privileges(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    username: String,
+    host: String,
+    privileges: Vec<String>,
+    database: Option<String>,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .revoke_privileges(&server, &conn, &username, &host, &privileges, database.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+/// Change user password
+#[tauri::command]
+async fn db_change_user_password(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    username: String,
+    host: String,
+    new_password: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .change_user_password(&server, &conn, &username, &host, &new_password)
+        .map_err(|e| e.to_string())
+}
+
+/// Create a table
+#[tauri::command]
+async fn db_create_table(
+    state: tauri::State<'_, AppState>,
+    input: CreateTableInput,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&input.connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .create_table(&server, &conn, &input)
+        .map_err(|e| e.to_string())
+}
+
+/// Drop a table
+#[tauri::command]
+async fn db_drop_table(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .drop_table(&server, &conn, &database, &table)
+        .map_err(|e| e.to_string())
+}
+
+/// Truncate a table
+#[tauri::command]
+async fn db_truncate_table(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> std::result::Result<(), String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .truncate_table(&server, &conn, &database, &table)
+        .map_err(|e| e.to_string())
+}
+
+/// Search data in table
+#[tauri::command]
+async fn db_search_table_data(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+    search_term: String,
+    columns: Vec<String>,
+    page: Option<i32>,
+    page_size: Option<i32>,
+) -> std::result::Result<TableData, String> {
+    let conn = state.database_manager
+        .get_connection(&connection_id)
+        .await
+        .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
+    
+    let server = state.server_manager.lock().await
+        .get_server(&conn.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .search_table_data(
+            &server,
+            &conn,
+            &database,
+            &table,
+            &search_term,
+            &columns,
+            page.unwrap_or(1),
+            page_size.unwrap_or(50),
+        )
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1488,6 +2971,54 @@ pub fn run() {
                     ssh_client.clone(),
                     server_manager.clone(),
                 ));
+                batch_executor.set_app_handle(app_handle.clone()).await;
+
+                // Initialize transfer manager (Phase 4 - Task 5)
+                let transfer_manager = Arc::new(TransferManager::new(
+                    credential_store.clone(),
+                    server_manager.clone(),
+                ));
+                transfer_manager.set_app_handle(app_handle.clone()).await;
+
+                // Initialize monitor service (Phase 4 - Task 6)
+                let monitor_service = Arc::new(MonitorService::new(
+                    ssh_client.clone(),
+                    server_manager.clone(),
+                    db_pool.clone(),
+                ));
+                monitor_service.set_app_handle(app_handle.clone()).await;
+
+                // Initialize snippet library (Phase 4 - Task 7)
+                let snippet_library = Arc::new(Mutex::new(
+                    SnippetLibrary::new(db_pool.clone())
+                ));
+
+                // Seed default snippets if none exist
+                {
+                    let lib = snippet_library.lock().await;
+                    if let Err(e) = lib.seed_default_snippets().await {
+                        eprintln!("Failed to seed default snippets: {}", e);
+                    }
+                }
+
+                // Initialize favorites manager (Phase 4 - Task 9.6)
+                let favorites_manager = Arc::new(Mutex::new(
+                    FavoritesManager::new(db_pool.clone())
+                ));
+
+                // Initialize SSH key manager
+                let ssh_key_manager = Arc::new(SshKeyManager::new(db_pool.clone()));
+
+                // Initialize Nginx manager
+                let nginx_manager = Arc::new(NginxManager::new(
+                    ssh_client.clone(),
+                    server_manager.clone(),
+                ));
+
+                // Initialize Database manager
+                let database_manager = Arc::new(DatabaseManager::new(
+                    ssh_client.clone(),
+                ));
 
                 // Create app state
                 let state = AppState {
@@ -1499,7 +3030,13 @@ pub fn run() {
                     rollback_manager,
                     script_engine,
                     batch_executor,
+                    monitor_service,
+                    snippet_library,
+                    favorites_manager,
+                    nginx_manager,
+                    database_manager,
                     ssh_client,
+                    ssh_key_manager,
                     file_browser,
                     file_manager,
                     cache_manager,
@@ -1510,6 +3047,7 @@ pub fn run() {
                     credential_store,
                     active_streams: Arc::new(Mutex::new(HashSet::new())),
                     active_local_streams: Arc::new(Mutex::new(HashSet::new())),
+                    transfer_manager,
                 };
 
                 app_handle.manage(state);
@@ -1555,6 +3093,8 @@ pub fn run() {
             start_terminal_stream,
             get_terminal_session_count,
             list_terminal_sessions,
+            detect_multiplexer_sessions,
+            attach_multiplexer_session,
             // Local terminal commands
             create_local_terminal_session,
             close_local_terminal_session,
@@ -1614,6 +3154,95 @@ pub fn run() {
             rollback_deployment,
             can_rollback_deployment,
             get_rollback_info,
+            // Transfer commands (Phase 4 - Task 5)
+            queue_uploads,
+            queue_downloads,
+            cancel_transfer,
+            get_transfer_status,
+            get_all_transfers,
+            set_transfer_speed_limit,
+            // Monitoring commands (Phase 4 - Task 6)
+            get_server_metrics,
+            get_all_server_status,
+            get_metrics_history,
+            create_alert,
+            list_alerts,
+            update_alert,
+            delete_alert,
+            check_alerts,
+            start_monitoring,
+            stop_monitoring,
+            run_monitoring_cycle,
+            // Snippet library commands (Phase 4 - Task 7)
+            create_snippet,
+            get_snippet,
+            list_snippets,
+            list_snippets_by_category,
+            search_snippets,
+            update_snippet,
+            delete_snippet,
+            export_snippets,
+            import_snippets,
+            list_snippet_categories,
+            // Favorites & Activity commands (Phase 4 - Task 9.6)
+            add_favorite,
+            remove_favorite,
+            list_favorites,
+            list_favorites_by_type,
+            is_favorite,
+            log_activity,
+            get_recent_activity,
+            // Nginx Management commands
+            nginx_get_status,
+            nginx_list_domains,
+            nginx_create_domain,
+            nginx_update_domain,
+            nginx_delete_domain,
+            nginx_toggle_domain,
+            nginx_get_domain_config,
+            nginx_save_domain_config,
+            nginx_issue_ssl,
+            nginx_renew_ssl,
+            nginx_list_ssl_certificates,
+            nginx_get_snippets,
+            nginx_restart,
+            nginx_start,
+            nginx_stop,
+            // SSH Key Management commands
+            generate_ssh_key,
+            list_ssh_keys,
+            get_ssh_key,
+            delete_ssh_key,
+            update_ssh_key,
+            export_ssh_public_key,
+            // Database Management commands
+            db_add_connection,
+            db_list_connections,
+            db_get_connection,
+            db_remove_connection,
+            db_test_connection,
+            db_list_databases,
+            db_list_tables,
+            db_get_columns,
+            db_get_indexes,
+            db_execute_query,
+            db_get_table_data,
+            db_update_row,
+            db_insert_row,
+            db_delete_rows,
+            db_list_users,
+            db_create_user,
+            db_drop_user,
+            db_create_database,
+            db_drop_database,
+            db_get_user_privileges,
+            db_grant_privileges,
+            db_revoke_privileges,
+            db_change_user_password,
+            db_create_table,
+            db_drop_table,
+            db_truncate_table,
+            db_search_table_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

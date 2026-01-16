@@ -9,6 +9,7 @@ export interface Server {
   port: number;
   username: string;
   auth_method: "password" | "ssh_key";
+  ssh_key_id: string | null;
   tags: string[];
   environment: "dev" | "staging" | "prod";
   use_sudo: boolean;
@@ -23,6 +24,7 @@ export interface CreateServerInput {
   port: number;
   username: string;
   auth_method: "password" | "ssh_key";
+  ssh_key_id?: string;
   tags?: string[];
   environment: "dev" | "staging" | "prod";
   use_sudo?: boolean;
@@ -34,6 +36,7 @@ export interface UpdateServerInput {
   port?: number;
   username?: string;
   auth_method?: "password" | "ssh_key";
+  ssh_key_id?: string;
   tags?: string[];
   environment?: "dev" | "staging" | "prod";
   use_sudo?: boolean;
@@ -221,7 +224,20 @@ export const terminalApi = {
     invoke<number>("get_terminal_session_count"),
   listSessions: () =>
     invoke<string[]>("list_terminal_sessions"),
+  detectMultiplexerSessions: (serverId: string) =>
+    invoke<MultiplexerSession[]>("detect_multiplexer_sessions", { serverId }),
+  attachMultiplexerSession: (sessionId: string, multiplexerType: string, sessionName: string) =>
+    invoke<void>("attach_multiplexer_session", { sessionId, multiplexerType, sessionName }),
 };
+
+// Multiplexer Session Types (tmux/screen)
+export interface MultiplexerSession {
+  name: string;
+  multiplexer_type: string;
+  attached: boolean;
+  windows: number | null;
+  created_at: string | null;
+}
 
 // Local Terminal API
 export const localTerminalApi = {
@@ -606,3 +622,826 @@ export const deploymentEventApi = {
 
 // Re-export types for convenience
 // Types are already exported as interfaces above
+
+
+// ============================================================================
+// Phase 4 - Advanced Features Types
+// ============================================================================
+
+// Server Groups Types
+export interface ServerGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  server_ids: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGroupInput {
+  name: string;
+  description?: string;
+  server_ids?: string[];
+}
+
+export interface UpdateGroupInput {
+  name?: string;
+  description?: string;
+  server_ids?: string[];
+}
+
+// Batch Operations Types
+export interface BatchResult {
+  server_id: string;
+  server_name: string;
+  success: boolean;
+  output: string | null;
+  error: string | null;
+  duration_ms: number;
+}
+
+export interface HealthCheckResult {
+  server_id: string;
+  server_name: string;
+  connected: boolean;
+  latency_ms: number | null;
+  error: string | null;
+}
+
+export interface BatchSummary {
+  total: number;
+  success_count: number;
+  failure_count: number;
+  results: BatchResult[];
+}
+
+export interface HealthCheckSummary {
+  total: number;
+  online_count: number;
+  offline_count: number;
+  results: HealthCheckResult[];
+}
+
+export interface BatchProgressPayload {
+  completed: number;
+  total: number;
+  current_server: string;
+  current_server_id: string;
+}
+
+// Transfer Types
+export interface TransferRequest {
+  local_path: string;
+  remote_path: string;
+}
+
+export type TransferDirection = "upload" | "download";
+
+export type TransferState =
+  | "queued"
+  | "in_progress"
+  | "completed"
+  | { failed: string }
+  | "cancelled";
+
+export interface TransferStatus {
+  id: string;
+  file_name: string;
+  direction: TransferDirection;
+  bytes_transferred: number;
+  total_bytes: number;
+  speed_bps: number;
+  eta_seconds: number | null;
+  state: TransferState;
+  server_id: string;
+  local_path: string;
+  remote_path: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TransferProgressPayload {
+  transfer_id: string;
+  bytes_transferred: number;
+  total_bytes: number;
+  speed_bps: number;
+  eta_seconds: number | null;
+}
+
+export interface TransferCompletedPayload {
+  transfer_id: string;
+  success: boolean;
+  error: string | null;
+}
+
+// Monitoring Types
+export interface ServerMetrics {
+  cpu_percent: number;
+  memory_used: number;
+  memory_total: number;
+  disk_used: number;
+  disk_total: number;
+  load_average: [number, number, number];
+  uptime_seconds: number;
+  collected_at: string;
+}
+
+export interface ServerStatusInfo {
+  server_id: string;
+  server_name: string;
+  online: boolean;
+  metrics: ServerMetrics | null;
+  last_checked: string;
+}
+
+export type MetricType = "cpu_usage" | "memory_usage" | "disk_usage";
+
+export type AlertCondition = "greater_than" | "less_than" | "equals";
+
+export interface AlertConfig {
+  id: string;
+  server_id: string | null;
+  metric: MetricType;
+  condition: AlertCondition;
+  threshold: number;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface Alert {
+  alert_config_id: string;
+  server_id: string;
+  server_name: string;
+  metric: MetricType;
+  condition: AlertCondition;
+  threshold: number;
+  actual_value: number;
+  triggered_at: string;
+}
+
+export interface MetricPoint {
+  timestamp: string;
+  value: number;
+}
+
+export interface CreateAlertInput {
+  server_id?: string;
+  metric: MetricType;
+  condition: AlertCondition;
+  threshold: number;
+  enabled: boolean;
+}
+
+export interface UpdateAlertInput {
+  server_id?: string;
+  metric?: MetricType;
+  condition?: AlertCondition;
+  threshold?: number;
+  enabled?: boolean;
+}
+
+export interface MetricsUpdatedPayload {
+  server_id: string;
+  metrics: ServerMetrics;
+}
+
+export interface AlertTriggeredPayload {
+  alert_id: string;
+  server_id: string;
+  metric: string;
+  value: number;
+  threshold: number;
+}
+
+// Snippets Types
+export interface Snippet {
+  id: string;
+  name: string;
+  description: string | null;
+  command: string;
+  category: string;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSnippetInput {
+  name: string;
+  description?: string;
+  command: string;
+  category: string;
+  tags?: string[];
+}
+
+export interface UpdateSnippetInput {
+  name?: string;
+  description?: string;
+  command?: string;
+  category?: string;
+  tags?: string[];
+}
+
+export interface SnippetImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
+// Favorites Types
+export type FavoriteType = "server" | "script" | "snippet";
+
+export interface Favorite {
+  id: string;
+  item_type: FavoriteType;
+  item_id: string;
+  created_at: string;
+}
+
+// Activity Log Types
+export interface ActivityLog {
+  id: string;
+  action: string;
+  item_type: string | null;
+  item_id: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+// ============================================================================
+// Phase 4 - Server Groups API
+// ============================================================================
+
+export const groupApi = {
+  create: (input: CreateGroupInput) => invoke<ServerGroup>("create_group", { input }),
+  list: () => invoke<ServerGroup[]>("list_groups"),
+  get: (id: string) => invoke<ServerGroup>("get_group", { id }),
+  update: (id: string, input: UpdateGroupInput) => invoke<ServerGroup>("update_group", { id, input }),
+  delete: (id: string) => invoke<void>("delete_group", { id }),
+  addServer: (groupId: string, serverId: string) => invoke<void>("add_server_to_group", { groupId, serverId }),
+  removeServer: (groupId: string, serverId: string) => invoke<void>("remove_server_from_group", { groupId, serverId }),
+  getServers: (groupId: string) => invoke<Server[]>("get_servers_in_group", { groupId }),
+};
+
+// ============================================================================
+// Phase 4 - Batch Operations API
+// ============================================================================
+
+export const batchApi = {
+  executeCommand: (serverIds: string[], command: string) =>
+    invoke<BatchResult[]>("batch_execute_command", { serverIds, command }),
+  executeParallel: (serverIds: string[], command: string, maxParallel: number) =>
+    invoke<BatchResult[]>("batch_execute_parallel", { serverIds, command, maxParallel }),
+  healthCheck: (serverIds: string[]) =>
+    invoke<HealthCheckResult[]>("batch_health_check", { serverIds }),
+  executeWithSummary: (serverIds: string[], command: string) =>
+    invoke<BatchSummary>("batch_execute_with_summary", { serverIds, command }),
+  healthCheckWithSummary: (serverIds: string[]) =>
+    invoke<HealthCheckSummary>("batch_health_check_with_summary", { serverIds }),
+};
+
+// ============================================================================
+// Phase 4 - Transfer API
+// ============================================================================
+
+export const transferApi = {
+  queueUploads: (serverId: string, transfers: TransferRequest[]) =>
+    invoke<string[]>("queue_uploads", { serverId, transfers }),
+  queueDownloads: (serverId: string, transfers: TransferRequest[]) =>
+    invoke<string[]>("queue_downloads", { serverId, transfers }),
+  cancel: (transferId: string) =>
+    invoke<void>("cancel_transfer", { transferId }),
+  getStatus: (transferId: string) =>
+    invoke<TransferStatus>("get_transfer_status", { transferId }),
+  setSpeedLimit: (bytesPerSecond: number | null) =>
+    invoke<void>("set_transfer_speed_limit", { bytesPerSecond }),
+  listActive: () =>
+    invoke<TransferStatus[]>("list_active_transfers"),
+};
+
+// ============================================================================
+// Phase 4 - Monitoring API
+// ============================================================================
+
+export const monitorApi = {
+  getServerMetrics: (serverId: string) =>
+    invoke<ServerMetrics>("get_server_metrics", { serverId }),
+  getAllServerStatus: () =>
+    invoke<ServerStatusInfo[]>("get_all_server_status"),
+  getMetricsHistory: (serverId: string, metric: string, hours: number) =>
+    invoke<MetricPoint[]>("get_metrics_history", { serverId, metric, hours }),
+  setAlert: (alert: CreateAlertInput) =>
+    invoke<AlertConfig>("set_alert", { alert }),
+  updateAlert: (id: string, input: UpdateAlertInput) =>
+    invoke<AlertConfig>("update_alert", { id, input }),
+  deleteAlert: (id: string) =>
+    invoke<void>("delete_alert", { id }),
+  listAlerts: () =>
+    invoke<AlertConfig[]>("list_alerts"),
+  checkAlerts: () =>
+    invoke<Alert[]>("check_alerts"),
+  startMonitoring: (intervalSeconds: number) =>
+    invoke<void>("start_monitoring", { intervalSeconds }),
+  stopMonitoring: () =>
+    invoke<void>("stop_monitoring"),
+};
+
+// ============================================================================
+// Phase 4 - Snippets API
+// ============================================================================
+
+export const snippetApi = {
+  create: (input: CreateSnippetInput) => invoke<Snippet>("create_snippet", { input }),
+  list: () => invoke<Snippet[]>("list_snippets"),
+  get: (id: string) => invoke<Snippet>("get_snippet", { id }),
+  listByCategory: (category: string) => invoke<Snippet[]>("list_snippets_by_category", { category }),
+  search: (query: string) => invoke<Snippet[]>("search_snippets", { query }),
+  update: (id: string, input: UpdateSnippetInput) => invoke<Snippet>("update_snippet", { id, input }),
+  delete: (id: string) => invoke<void>("delete_snippet", { id }),
+  export: () => invoke<string>("export_snippets"),
+  import: (json: string) => invoke<SnippetImportResult>("import_snippets", { json }),
+};
+
+// ============================================================================
+// Phase 4 - Favorites API
+// ============================================================================
+
+export const favoritesApi = {
+  add: (itemType: FavoriteType, itemId: string) =>
+    invoke<void>("add_favorite", { itemType, itemId }),
+  remove: (itemType: FavoriteType, itemId: string) =>
+    invoke<void>("remove_favorite", { itemType, itemId }),
+  list: () =>
+    invoke<Favorite[]>("list_favorites"),
+  isFavorite: (itemType: FavoriteType, itemId: string) =>
+    invoke<boolean>("is_favorite", { itemType, itemId }),
+};
+
+// ============================================================================
+// Phase 4 - Activity Log API
+// ============================================================================
+
+export const activityApi = {
+  getRecent: (limit: number) =>
+    invoke<ActivityLog[]>("get_recent_activity", { limit }),
+  log: (action: string, itemType?: string, itemId?: string, details?: string) =>
+    invoke<void>("log_activity", { action, itemType, itemId, details }),
+};
+
+// ============================================================================
+// Phase 4 - Event Listeners
+// ============================================================================
+
+export const phase4EventApi = {
+  onTransferProgress: (callback: (payload: TransferProgressPayload) => void): Promise<UnlistenFn> =>
+    listen<TransferProgressPayload>("transfer-progress", (event) => callback(event.payload)),
+  
+  onTransferCompleted: (callback: (payload: TransferCompletedPayload) => void): Promise<UnlistenFn> =>
+    listen<TransferCompletedPayload>("transfer-completed", (event) => callback(event.payload)),
+  
+  onMetricsUpdated: (callback: (payload: MetricsUpdatedPayload) => void): Promise<UnlistenFn> =>
+    listen<MetricsUpdatedPayload>("metrics-updated", (event) => callback(event.payload)),
+  
+  onAlertTriggered: (callback: (payload: AlertTriggeredPayload) => void): Promise<UnlistenFn> =>
+    listen<AlertTriggeredPayload>("alert-triggered", (event) => callback(event.payload)),
+  
+  onBatchProgress: (callback: (payload: BatchProgressPayload) => void): Promise<UnlistenFn> =>
+    listen<BatchProgressPayload>("batch-progress", (event) => callback(event.payload)),
+};
+
+// ============================================================================
+// SSH Key Management Types
+// ============================================================================
+
+export type SshKeyType = "ed25519" | "rsa";
+
+export interface SshKey {
+  id: string;
+  name: string;
+  key_type: string;
+  public_key: string;
+  fingerprint: string;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface CreateSshKeyInput {
+  name: string;
+  key_type: SshKeyType;
+  passphrase?: string;
+  comment?: string;
+  bits?: number; // For RSA keys (2048, 4096)
+}
+
+export interface GeneratedKey {
+  id: string;
+  name: string;
+  key_type: string;
+  public_key: string;
+  fingerprint: string;
+}
+
+// ============================================================================
+// SSH Key Management API
+// ============================================================================
+
+export const sshKeyApi = {
+  generate: (input: CreateSshKeyInput) => invoke<GeneratedKey>("generate_ssh_key", { input }),
+  list: () => invoke<SshKey[]>("list_ssh_keys"),
+  get: (id: string) => invoke<SshKey>("get_ssh_key", { id }),
+  delete: (id: string) => invoke<void>("delete_ssh_key", { id }),
+  update: (id: string, name?: string, comment?: string) => 
+    invoke<SshKey>("update_ssh_key", { id, name, comment }),
+  exportPublicKey: (id: string) => invoke<string>("export_ssh_public_key", { id }),
+};
+
+// ============================================================================
+// Nginx Management Types
+// ============================================================================
+
+export type TemplateType = 
+  | "static"
+  | "php"
+  | "php_laravel"
+  | "php_wordpress"
+  | "node_js"
+  | "node_next_js"
+  | "python"
+  | "python_django"
+  | "python_flask"
+  | "ruby_rails"
+  | "java"
+  | "go_lang"
+  | "reverse_proxy"
+  | "load_balancer"
+  | "custom";
+
+export interface NginxDomain {
+  id: string;
+  server_id: string;
+  domain: string;
+  aliases: string[];
+  root_path: string;
+  config_path: string;
+  enabled: boolean;
+  ssl_enabled: boolean;
+  ssl_certificate: string | null;
+  ssl_certificate_key: string | null;
+  proxy_pass: string | null;
+  template_type: TemplateType;
+  custom_config: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface NginxStatus {
+  running: boolean;
+  version: string;
+  config_test: boolean;
+  config_error: string | null;
+  sites_enabled: number;
+  sites_available: number;
+}
+
+export interface SslCertificate {
+  domain: string;
+  issuer: string;
+  valid_from: string;
+  valid_until: string;
+  days_remaining: number;
+  auto_renew: boolean;
+}
+
+export interface SslResult {
+  success: boolean;
+  domain: string;
+  message: string;
+  certificate_path: string | null;
+  key_path: string | null;
+}
+
+export interface ConfigSnippet {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  content: string;
+}
+
+export interface CreateDomainInput {
+  server_id: string;
+  domain: string;
+  aliases?: string[];
+  root_path?: string;
+  template_type: TemplateType;
+  proxy_pass?: string;
+  enable_ssl: boolean;
+  custom_config?: string;
+}
+
+export interface UpdateDomainInput {
+  domain?: string;
+  aliases?: string[];
+  root_path?: string;
+  template_type?: TemplateType;
+  proxy_pass?: string;
+  custom_config?: string;
+}
+
+// ============================================================================
+// Nginx Management API
+// ============================================================================
+
+export const nginxApi = {
+  // Status & Control
+  getStatus: (serverId: string) => 
+    invoke<NginxStatus>("nginx_get_status", { serverId }),
+  restart: (serverId: string) => 
+    invoke<void>("nginx_restart", { serverId }),
+  start: (serverId: string) => 
+    invoke<void>("nginx_start", { serverId }),
+  stop: (serverId: string) => 
+    invoke<void>("nginx_stop", { serverId }),
+
+  // Domain Management
+  listDomains: (serverId: string) => 
+    invoke<NginxDomain[]>("nginx_list_domains", { serverId }),
+  createDomain: (input: CreateDomainInput) => 
+    invoke<NginxDomain>("nginx_create_domain", { input }),
+  updateDomain: (serverId: string, domainName: string, input: UpdateDomainInput) => 
+    invoke<NginxDomain>("nginx_update_domain", { serverId, domainName, input }),
+  deleteDomain: (serverId: string, domainName: string) => 
+    invoke<void>("nginx_delete_domain", { serverId, domainName }),
+  toggleDomain: (serverId: string, domainName: string, enable: boolean) => 
+    invoke<void>("nginx_toggle_domain", { serverId, domainName, enable }),
+
+  // Config Management
+  getDomainConfig: (serverId: string, domainName: string) => 
+    invoke<string>("nginx_get_domain_config", { serverId, domainName }),
+  saveDomainConfig: (serverId: string, domainName: string, content: string) => 
+    invoke<void>("nginx_save_domain_config", { serverId, domainName, content }),
+  getSnippets: () => 
+    invoke<ConfigSnippet[]>("nginx_get_snippets"),
+
+  // SSL Management
+  issueSsl: (serverId: string, domainName: string, email: string) => 
+    invoke<SslResult>("nginx_issue_ssl", { serverId, domainName, email }),
+  renewSsl: (serverId: string) => 
+    invoke<string>("nginx_renew_ssl", { serverId }),
+  listSslCertificates: (serverId: string) => 
+    invoke<SslCertificate[]>("nginx_list_ssl_certificates", { serverId }),
+};
+
+// ============================================================================
+// Database Management Types
+// ============================================================================
+
+export type DatabaseType = "mysql" | "postgresql";
+
+export interface DatabaseConnection {
+  id: string;
+  server_id: string;
+  name: string;
+  db_type: DatabaseType;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateConnectionInput {
+  server_id: string;
+  name: string;
+  db_type: DatabaseType;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database?: string;
+}
+
+export interface UpdateConnectionInput {
+  name?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+}
+
+export interface DatabaseInfo {
+  name: string;
+  size: string | null;
+  tables_count: number | null;
+  charset: string | null;
+  collation: string | null;
+}
+
+export interface TableInfo {
+  name: string;
+  rows: number | null;
+  size: string | null;
+  engine: string | null;
+  collation: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ColumnInfo {
+  name: string;
+  data_type: string;
+  is_nullable: boolean;
+  column_default: string | null;
+  is_primary_key: boolean;
+  is_unique: boolean;
+  is_auto_increment: boolean;
+  max_length: number | null;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+  comment: string | null;
+}
+
+export interface IndexInfo {
+  name: string;
+  columns: string[];
+  is_unique: boolean;
+  is_primary: boolean;
+  index_type: string | null;
+}
+
+export interface DatabaseUser {
+  username: string;
+  host: string;
+  privileges: string[];
+}
+
+export interface CreateUserInput {
+  username: string;
+  password: string;
+  host: string;
+  privileges: string[];
+  database?: string;
+}
+
+export interface QueryResult {
+  columns: string[];
+  rows: unknown[][];
+  affected_rows: number;
+  execution_time_ms: number;
+  is_select: boolean;
+  error: string | null;
+}
+
+export interface ExecuteQueryInput {
+  connection_id: string;
+  database: string;
+  query: string;
+}
+
+export interface TableData {
+  columns: ColumnInfo[];
+  rows: unknown[][];
+  total_rows: number;
+  page: number;
+  page_size: number;
+  primary_key_columns: string[];
+}
+
+export interface FetchTableDataInput {
+  connection_id: string;
+  database: string;
+  table: string;
+  page?: number;
+  page_size?: number;
+  order_by?: string;
+  order_dir?: string;
+  filter?: string;
+}
+
+export interface UpdateRowInput {
+  connection_id: string;
+  database: string;
+  table: string;
+  primary_key_values: Record<string, unknown>;
+  updates: Record<string, unknown>;
+}
+
+export interface InsertRowInput {
+  connection_id: string;
+  database: string;
+  table: string;
+  values: Record<string, unknown>;
+}
+
+export interface DeleteRowsInput {
+  connection_id: string;
+  database: string;
+  table: string;
+  primary_key_values: Record<string, unknown>[];
+}
+
+export interface ConnectionTestResult {
+  success: boolean;
+  message: string;
+  version: string | null;
+}
+
+export interface CreateDatabaseInput {
+  connection_id: string;
+  name: string;
+  charset?: string;
+  collation?: string;
+}
+
+export interface CreateTableInput {
+  connection_id: string;
+  database: string;
+  name: string;
+  columns: CreateColumnInput[];
+  primary_key?: string[];
+  engine?: string;
+}
+
+export interface CreateColumnInput {
+  name: string;
+  data_type: string;
+  length?: number;
+  is_nullable: boolean;
+  default_value?: string;
+  is_auto_increment: boolean;
+  comment?: string;
+}
+
+// ============================================================================
+// Database Management API
+// ============================================================================
+
+export const databaseApi = {
+  // Connection Management
+  addConnection: (input: CreateConnectionInput) =>
+    invoke<DatabaseConnection>("db_add_connection", { input }),
+  listConnections: () =>
+    invoke<DatabaseConnection[]>("db_list_connections"),
+  getConnection: (id: string) =>
+    invoke<DatabaseConnection>("db_get_connection", { id }),
+  removeConnection: (id: string) =>
+    invoke<void>("db_remove_connection", { id }),
+  testConnection: (connectionId: string) =>
+    invoke<ConnectionTestResult>("db_test_connection", { connectionId }),
+
+  // Database Operations
+  listDatabases: (connectionId: string) =>
+    invoke<DatabaseInfo[]>("db_list_databases", { connectionId }),
+  createDatabase: (input: CreateDatabaseInput) =>
+    invoke<void>("db_create_database", { input }),
+  dropDatabase: (connectionId: string, database: string) =>
+    invoke<void>("db_drop_database", { connectionId, database }),
+
+  // Table Operations
+  listTables: (connectionId: string, database: string) =>
+    invoke<TableInfo[]>("db_list_tables", { connectionId, database }),
+  getColumns: (connectionId: string, database: string, table: string) =>
+    invoke<ColumnInfo[]>("db_get_columns", { connectionId, database, table }),
+  getIndexes: (connectionId: string, database: string, table: string) =>
+    invoke<IndexInfo[]>("db_get_indexes", { connectionId, database, table }),
+  getTableData: (input: FetchTableDataInput) =>
+    invoke<TableData>("db_get_table_data", { input }),
+  createTable: (input: CreateTableInput) =>
+    invoke<void>("db_create_table", { input }),
+  dropTable: (connectionId: string, database: string, table: string) =>
+    invoke<void>("db_drop_table", { connectionId, database, table }),
+  truncateTable: (connectionId: string, database: string, table: string) =>
+    invoke<void>("db_truncate_table", { connectionId, database, table }),
+  searchTableData: (connectionId: string, database: string, table: string, searchTerm: string, columns?: string[], page?: number, pageSize?: number) =>
+    invoke<TableData>("db_search_table_data", { connectionId, database, table, searchTerm, columns: columns || [], page, pageSize }),
+
+  // Query Execution
+  executeQuery: (input: ExecuteQueryInput) =>
+    invoke<QueryResult>("db_execute_query", { input }),
+
+  // Row Operations
+  updateRow: (input: UpdateRowInput) =>
+    invoke<number>("db_update_row", { input }),
+  insertRow: (input: InsertRowInput) =>
+    invoke<number>("db_insert_row", { input }),
+  deleteRows: (input: DeleteRowsInput) =>
+    invoke<number>("db_delete_rows", { input }),
+
+  // User Management
+  listUsers: (connectionId: string) =>
+    invoke<DatabaseUser[]>("db_list_users", { connectionId }),
+  createUser: (connectionId: string, input: CreateUserInput) =>
+    invoke<void>("db_create_user", { connectionId, input }),
+  dropUser: (connectionId: string, username: string, host: string) =>
+    invoke<void>("db_drop_user", { connectionId, username, host }),
+  getUserPrivileges: (connectionId: string, username: string, host: string) =>
+    invoke<string[]>("db_get_user_privileges", { connectionId, username, host }),
+  grantPrivileges: (connectionId: string, username: string, host: string, privileges: string[], database?: string) =>
+    invoke<void>("db_grant_privileges", { connectionId, username, host, privileges, database }),
+  revokePrivileges: (connectionId: string, username: string, host: string, privileges: string[], database?: string) =>
+    invoke<void>("db_revoke_privileges", { connectionId, username, host, privileges, database }),
+  changeUserPassword: (connectionId: string, username: string, host: string, newPassword: string) =>
+    invoke<void>("db_change_user_password", { connectionId, username, host, newPassword }),
+};

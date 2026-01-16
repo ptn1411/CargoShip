@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Server, Loader2, Monitor, LayoutGrid, List } from "lucide-react";
+import { Plus, Server, Loader2, Monitor, LayoutGrid, List, Terminal, Layers, Settings } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import { parseError } from "../../lib/errorHandler";
@@ -7,8 +7,11 @@ import { TerminalTab } from "./TerminalTab";
 import { TerminalView } from "./TerminalView";
 import { LocalTerminalView } from "./LocalTerminalView";
 import { TerminalSnapLayout } from "./TerminalSnapLayout";
+import { MultiplexerSessionDialog } from "./MultiplexerSessionDialog";
+import { TerminalSettings, TerminalSettingsData, DEFAULT_TERMINAL_SETTINGS } from "./TerminalSettings";
 import { ServerSelectionGrid } from "../ui";
-import { localTerminalApi } from "../../lib/tauri";
+import { localTerminalApi, terminalApi, MultiplexerSession } from "../../lib/tauri";
+import { SnippetPicker } from "../snippets";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 // Extended session type to support both SSH and local terminals
@@ -38,12 +41,54 @@ export function TerminalContainer() {
   const [isOpening, setIsOpening] = useState(false);
   const [localSessions, setLocalSessions] = useState<ExtendedTerminalSession[]>([]);
   const [viewMode, setViewMode] = useState<"tabs" | "snap">("tabs");
+  const [isSnippetPickerOpen, setIsSnippetPickerOpen] = useState(false);
+  const [isMultiplexerDialogOpen, setIsMultiplexerDialogOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [terminalSettings, setTerminalSettings] = useState<TerminalSettingsData>(DEFAULT_TERMINAL_SETTINGS);
+
+  const showSuccess = useAppStore((state) => state.showSuccess);
 
   // Combine SSH and local sessions
   const allSessions: ExtendedTerminalSession[] = [
     ...localSessions,
     ...terminalSessions.map(s => ({ ...s, isLocal: false })),
   ];
+
+  // Get active session for multiplexer detection
+  const activeSession = allSessions.find(s => s.id === activeTerminalId);
+  const canDetectMultiplexer = activeSession && !activeSession.isLocal;
+
+  // Handle multiplexer session attach
+  const handleMultiplexerAttach = (session: MultiplexerSession) => {
+    showSuccess(
+      "Attached to session",
+      `Connected to ${session.multiplexer_type} session: ${session.name}`
+    );
+  };
+
+  // Handle snippet insertion into active terminal
+  const handleInsertSnippet = async (command: string) => {
+    if (!activeTerminalId) {
+      showWarning("No active terminal", "Please select a terminal first");
+      return;
+    }
+
+    const activeSession = allSessions.find(s => s.id === activeTerminalId);
+    if (!activeSession) return;
+
+    try {
+      const bytes = Array.from(new TextEncoder().encode(command));
+      if (activeSession.isLocal) {
+        await localTerminalApi.write(activeTerminalId, bytes);
+      } else {
+        await terminalApi.write(activeTerminalId, bytes);
+      }
+      showSuccess("Snippet inserted", "Command pasted to terminal");
+    } catch (error) {
+      const parsed = parseError(error);
+      showError(parsed.title, parsed.message);
+    }
+  };
 
   const handleOpenTerminal = async (serverId: string) => {
     setIsOpening(true);
@@ -226,6 +271,35 @@ export function TerminalContainer() {
           </div>
         )}
 
+        {/* Multiplexer Sessions Button (tmux/screen) */}
+        {canDetectMultiplexer && (
+          <button
+            onClick={() => setIsMultiplexerDialogOpen(true)}
+            className="p-2 hover:bg-accent transition-colors border-l border-border"
+            title="Detect tmux/screen sessions"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Settings Button */}
+        <button
+          onClick={() => setIsSettingsOpen(true)}
+          className="p-2 hover:bg-accent transition-colors border-l border-border"
+          title="Terminal settings"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
+
+        {/* Snippet Button */}
+        <button
+          onClick={() => setIsSnippetPickerOpen(true)}
+          className="p-2 hover:bg-accent transition-colors border-l border-border"
+          title="Insert snippet"
+        >
+          <Terminal className="w-4 h-4" />
+        </button>
+
         {/* New Terminal Button */}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -311,12 +385,14 @@ export function TerminalContainer() {
                 key={session.id}
                 sessionId={session.id}
                 isActive={session.id === activeTerminalId}
+                terminalSettings={terminalSettings}
               />
             ) : (
               <TerminalView
                 key={session.id}
                 sessionId={session.id}
                 isActive={session.id === activeTerminalId}
+                terminalSettings={terminalSettings}
               />
             )
           ))
@@ -327,9 +403,37 @@ export function TerminalContainer() {
             activeTerminalId={activeTerminalId}
             onSetActive={setActiveTerminal}
             onClose={handleCloseTerminal}
+            terminalSettings={terminalSettings}
           />
         )}
       </div>
+
+      {/* Terminal Settings Dialog */}
+      <TerminalSettings
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        settings={terminalSettings}
+        onSettingsChange={setTerminalSettings}
+      />
+
+      {/* Snippet Picker Dialog */}
+      <SnippetPicker
+        open={isSnippetPickerOpen}
+        onOpenChange={setIsSnippetPickerOpen}
+        onSelect={handleInsertSnippet}
+        title="Insert Snippet to Terminal"
+      />
+
+      {/* Multiplexer Session Dialog (tmux/screen) */}
+      {activeSession && !activeSession.isLocal && (
+        <MultiplexerSessionDialog
+          open={isMultiplexerDialogOpen}
+          onOpenChange={setIsMultiplexerDialogOpen}
+          serverId={activeSession.serverId}
+          terminalSessionId={activeSession.id}
+          onAttach={handleMultiplexerAttach}
+        />
+      )}
     </div>
   );
 }

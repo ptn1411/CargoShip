@@ -4,7 +4,8 @@ use crate::ssh::SshClient;
 use super::models::*;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Mutex;
+use tauri::{AppHandle, Emitter};
+use tokio::sync::{Mutex, RwLock};
 
 /// Default concurrency limit for parallel execution
 const DEFAULT_MAX_PARALLEL: usize = 5;
@@ -14,6 +15,7 @@ const DEFAULT_MAX_PARALLEL: usize = 5;
 pub struct BatchExecutor {
     ssh_client: Arc<SshClient>,
     server_manager: Arc<Mutex<ServerManager>>,
+    app_handle: Arc<RwLock<Option<AppHandle>>>,
 }
 
 impl BatchExecutor {
@@ -21,6 +23,26 @@ impl BatchExecutor {
         Self {
             ssh_client,
             server_manager,
+            app_handle: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Set the Tauri app handle for emitting events
+    pub async fn set_app_handle(&self, app_handle: AppHandle) {
+        let mut handle = self.app_handle.write().await;
+        *handle = Some(app_handle);
+    }
+
+    /// Emit batch progress event
+    /// Requirements: 2.3
+    async fn emit_progress(&self, completed: usize, total: usize, server_name: &str, server_id: &str) {
+        if let Some(ref app_handle) = *self.app_handle.read().await {
+            let _ = app_handle.emit("batch-progress", BatchProgressPayload {
+                completed,
+                total,
+                current_server: server_name.to_string(),
+                current_server_id: server_id.to_string(),
+            });
         }
     }
 
@@ -35,7 +57,7 @@ impl BatchExecutor {
     }
 
     /// Execute a command on multiple servers with configurable concurrency
-    /// Requirements: 2.2, 2.5, 2.6
+    /// Requirements: 2.2, 2.3, 2.5, 2.6
     pub async fn execute_parallel(
         &self,
         server_ids: &[String],
@@ -46,18 +68,38 @@ impl BatchExecutor {
         
         // Get all servers first
         let servers = self.get_servers(server_ids).await?;
+        let total = servers.len();
         
         // Use semaphore to limit concurrency
         let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
+        let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut handles = Vec::new();
         
         for server in servers {
             let ssh_client = self.ssh_client.clone();
             let command = command.to_string();
             let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let app_handle = self.app_handle.clone();
+            let completed = completed_count.clone();
+            let server_name = server.name.clone();
+            let server_id = server.id.clone();
             
             let handle = tokio::spawn(async move {
+                // Emit progress before starting
+                if let Some(ref h) = *app_handle.read().await {
+                    let _ = h.emit("batch-progress", BatchProgressPayload {
+                        completed: completed.load(std::sync::atomic::Ordering::SeqCst),
+                        total,
+                        current_server: server_name.clone(),
+                        current_server_id: server_id.clone(),
+                    });
+                }
+                
                 let result = execute_on_server(ssh_client, server, command).await;
+                
+                // Increment completed count
+                completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                
                 drop(permit); // Release semaphore permit
                 result
             });
@@ -84,6 +126,9 @@ impl BatchExecutor {
             }
         }
         
+        // Emit final progress
+        self.emit_progress(results.len(), total, "", "").await;
+        
         Ok(results)
     }
 
@@ -94,7 +139,7 @@ impl BatchExecutor {
     }
 
     /// Perform health check on multiple servers with configurable concurrency
-    /// Requirements: 2.4
+    /// Requirements: 2.3, 2.4
     pub async fn health_check_parallel(
         &self,
         server_ids: &[String],
@@ -104,17 +149,37 @@ impl BatchExecutor {
         
         // Get all servers first
         let servers = self.get_servers(server_ids).await?;
+        let total = servers.len();
         
         // Use semaphore to limit concurrency
         let semaphore = Arc::new(tokio::sync::Semaphore::new(max_parallel));
+        let completed_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut handles = Vec::new();
         
         for server in servers {
             let ssh_client = self.ssh_client.clone();
             let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let app_handle = self.app_handle.clone();
+            let completed = completed_count.clone();
+            let server_name = server.name.clone();
+            let server_id = server.id.clone();
             
             let handle = tokio::spawn(async move {
+                // Emit progress before starting
+                if let Some(ref h) = *app_handle.read().await {
+                    let _ = h.emit("batch-progress", BatchProgressPayload {
+                        completed: completed.load(std::sync::atomic::Ordering::SeqCst),
+                        total,
+                        current_server: server_name.clone(),
+                        current_server_id: server_id.clone(),
+                    });
+                }
+                
                 let result = check_server_health(ssh_client, server).await;
+                
+                // Increment completed count
+                completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                
                 drop(permit);
                 result
             });
@@ -138,6 +203,9 @@ impl BatchExecutor {
                 }
             }
         }
+        
+        // Emit final progress
+        self.emit_progress(results.len(), total, "", "").await;
         
         Ok(results)
     }

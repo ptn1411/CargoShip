@@ -58,6 +58,11 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await;
 
+    // Migration: Add ssh_key_id column if it doesn't exist
+    let _ = sqlx::query("ALTER TABLE servers ADD COLUMN ssh_key_id TEXT")
+        .execute(pool)
+        .await;
+
     // Create indexes
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_servers_environment ON servers(environment)")
         .execute(pool)
@@ -336,6 +341,31 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .execute(pool)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create activity_log time index: {}", e)))?;
+
+    // Create ssh_keys table for storing generated SSH keys
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS ssh_keys (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            key_type TEXT NOT NULL,
+            private_key TEXT NOT NULL,
+            public_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            comment TEXT,
+            created_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create ssh_keys table: {}", e)))?;
+
+    // Create index for ssh_keys
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_ssh_keys_name ON ssh_keys(name)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e)))?;
 
     Ok(())
 }

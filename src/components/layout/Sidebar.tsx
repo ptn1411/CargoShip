@@ -1,18 +1,23 @@
-import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText } from "lucide-react";
+import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText, LayoutDashboard, Code2, Key, Globe, Database } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 interface SidebarProps {
-  activeItem: "servers" | "files" | "terminal" | "scripts";
-  onItemSelect: (item: "servers" | "files" | "terminal" | "scripts") => void;
+  activeItem: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
+  onItemSelect: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
 }
 
 const navItems = [
+  { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
   { id: "servers" as const, label: "Servers", icon: Server },
   { id: "files" as const, label: "Files", icon: FolderOpen },
   { id: "terminal" as const, label: "Terminal", icon: Terminal },
   { id: "scripts" as const, label: "Scripts", icon: ScrollText },
+  { id: "snippets" as const, label: "Snippets", icon: Code2 },
+  { id: "ssh-keys" as const, label: "SSH Keys", icon: Key },
+  { id: "nginx" as const, label: "Nginx", icon: Globe },
+  { id: "database" as const, label: "Database", icon: Database },
 ];
 
 function ThemeToggle() {

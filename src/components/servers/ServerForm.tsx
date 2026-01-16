@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { X, Eye, EyeOff, Loader2, FolderOpen } from "lucide-react";
+import { X, Eye, EyeOff, Loader2, FolderOpen, Key } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { cn } from "../../lib/utils";
-import { Server, CreateServerInput, UpdateServerInput, serverApi } from "../../lib/tauri";
+import { Server, CreateServerInput, UpdateServerInput, serverApi, sshKeyApi, SshKey } from "../../lib/tauri";
 
 interface ServerFormProps {
   open: boolean;
@@ -23,6 +23,8 @@ const authMethods = [
   { value: "ssh_key" as const, label: "SSH Key" },
 ];
 
+type KeySource = "file" | "database";
+
 export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormProps) {
   const isEditing = !!server;
   
@@ -31,7 +33,10 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
   const [port, setPort] = useState("22");
   const [username, setUsername] = useState("");
   const [authMethod, setAuthMethod] = useState<"password" | "ssh_key">("password");
+  const [keySource, setKeySource] = useState<KeySource>("file");
   const [credential, setCredential] = useState("");
+  const [sshKeyId, setSshKeyId] = useState<string>("");
+  const [sshKeys, setSshKeys] = useState<SshKey[]>([]);
   const [keyPassphrase, setKeyPassphrase] = useState("");
   const [showCredential, setShowCredential] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
@@ -42,6 +47,13 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
+
+  // Load SSH keys when dialog opens
+  useEffect(() => {
+    if (open) {
+      sshKeyApi.list().then(setSshKeys).catch(console.error);
+    }
+  }, [open]);
 
   // Reset form when dialog opens/closes or server changes
   useEffect(() => {
@@ -57,6 +69,14 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
         setUseSudo(server.use_sudo || false);
         setCredential("");
         setKeyPassphrase("");
+        // Set key source based on whether server has ssh_key_id
+        if (server.ssh_key_id) {
+          setKeySource("database");
+          setSshKeyId(server.ssh_key_id);
+        } else {
+          setKeySource("file");
+          setSshKeyId("");
+        }
       } else {
         setName("");
         setHost("");
@@ -68,6 +88,8 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
         setUseSudo(false);
         setCredential("");
         setKeyPassphrase("");
+        setKeySource("file");
+        setSshKeyId("");
       }
       setError(null);
       setDuplicateWarning(null);
@@ -124,8 +146,18 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
       if (!username.trim()) {
         throw new Error("Username is required");
       }
-      if (!isEditing && !credential.trim()) {
-        throw new Error(authMethod === "password" ? "Password is required" : "SSH key path is required");
+      if (!isEditing) {
+        if (authMethod === "password" && !credential.trim()) {
+          throw new Error("Password is required");
+        }
+        if (authMethod === "ssh_key") {
+          if (keySource === "file" && !credential.trim()) {
+            throw new Error("SSH key path is required");
+          }
+          if (keySource === "database" && !sshKeyId) {
+            throw new Error("Please select an SSH key");
+          }
+        }
       }
 
       const parsedTags = tags
@@ -140,11 +172,16 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           port: portNum,
           username: username.trim(),
           auth_method: authMethod,
+          ssh_key_id: authMethod === "ssh_key" && keySource === "database" ? sshKeyId : undefined,
           environment,
           tags: parsedTags,
           use_sudo: useSudo,
         };
-        await onSubmit(input, credential.trim() || undefined, keyPassphrase || undefined);
+        // Only pass credential if using file-based key or password
+        const credToPass = (authMethod === "password" || (authMethod === "ssh_key" && keySource === "file")) 
+          ? credential.trim() || undefined 
+          : undefined;
+        await onSubmit(input, credToPass, keyPassphrase || undefined);
       } else {
         const input: CreateServerInput = {
           name: name.trim(),
@@ -152,11 +189,16 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           port: portNum,
           username: username.trim(),
           auth_method: authMethod,
+          ssh_key_id: authMethod === "ssh_key" && keySource === "database" ? sshKeyId : undefined,
           environment,
           tags: parsedTags,
           use_sudo: useSudo,
         };
-        await onSubmit(input, credential.trim(), keyPassphrase || undefined);
+        // Only pass credential if using file-based key or password
+        const credToPass = (authMethod === "password" || (authMethod === "ssh_key" && keySource === "file")) 
+          ? credential.trim() 
+          : undefined;
+        await onSubmit(input, credToPass, keyPassphrase || undefined);
       }
 
       onOpenChange(false);
@@ -258,29 +300,86 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
             {/* Credential */}
             <div>
               <label className="block text-sm font-medium mb-1">
-                {authMethod === "password" ? "Password" : "SSH Key Path"}
+                {authMethod === "password" ? "Password" : "SSH Key"}
                 {isEditing && <span className="text-muted-foreground ml-1">(leave empty to keep current)</span>}
               </label>
-              <div className="relative flex gap-2">
-                <div className="relative flex-1">
+              
+              {authMethod === "ssh_key" && (
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setKeySource("database")}
+                    className={cn(
+                      "flex-1 px-3 py-2 rounded-md border text-sm transition-colors flex items-center justify-center gap-2",
+                      keySource === "database"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input hover:bg-accent"
+                    )}
+                  >
+                    <Key className="w-4 h-4" />
+                    From Library
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKeySource("file")}
+                    className={cn(
+                      "flex-1 px-3 py-2 rounded-md border text-sm transition-colors flex items-center justify-center gap-2",
+                      keySource === "file"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input hover:bg-accent"
+                    )}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    From File
+                  </button>
+                </div>
+              )}
+
+              {authMethod === "password" && (
+                <div className="relative">
                   <input
-                    type={authMethod === "password" ? (showCredential ? "text" : "password") : "text"}
+                    type={showCredential ? "text" : "password"}
                     value={credential}
                     onChange={(e) => setCredential(e.target.value)}
                     className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder={authMethod === "password" ? "••••••••" : "/home/user/.ssh/id_rsa"}
+                    placeholder="••••••••"
                   />
-                  {authMethod === "password" && (
-                    <button
-                      type="button"
-                      onClick={() => setShowCredential(!showCredential)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                    >
-                      {showCredential ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowCredential(!showCredential)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    {showCredential ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                {authMethod === "ssh_key" && (
+              )}
+
+              {authMethod === "ssh_key" && keySource === "database" && (
+                <select
+                  value={sshKeyId}
+                  onChange={(e) => setSshKeyId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select an SSH key...</option>
+                  {sshKeys.map((key) => (
+                    <option key={key.id} value={key.id}>
+                      {key.name} ({key.key_type})
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {authMethod === "ssh_key" && keySource === "file" && (
+                <div className="relative flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={credential}
+                      onChange={(e) => setCredential(e.target.value)}
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="/home/user/.ssh/id_rsa"
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={async () => {
@@ -307,12 +406,18 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                     <FolderOpen className="w-4 h-4" />
                     Browse
                   </button>
-                )}
-              </div>
+                </div>
+              )}
+
+              {authMethod === "ssh_key" && keySource === "database" && sshKeys.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No SSH keys found. Go to SSH Keys to generate one.
+                </p>
+              )}
             </div>
 
-            {/* SSH Key Passphrase (only shown for SSH key auth) */}
-            {authMethod === "ssh_key" && (
+            {/* SSH Key Passphrase (only shown for SSH key auth with file source) */}
+            {authMethod === "ssh_key" && keySource === "file" && (
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Key Passphrase

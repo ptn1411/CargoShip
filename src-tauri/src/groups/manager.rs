@@ -324,6 +324,7 @@ struct ServerRow {
     port: i32,
     username: String,
     auth_method: String,
+    ssh_key_id: Option<String>,
     tags: String,
     environment: String,
     #[sqlx(default)]
@@ -344,6 +345,7 @@ impl ServerRow {
             port: self.port as u16,
             username: self.username,
             auth_method: self.auth_method.parse().unwrap_or(AuthMethod::Password),
+            ssh_key_id: self.ssh_key_id,
             tags: serde_json::from_str(&self.tags).unwrap_or_default(),
             environment: self.environment.parse().unwrap_or(Environment::Dev),
             use_sudo: self.use_sudo,

@@ -11,6 +11,7 @@ import {
   CheckCircle,
   AlertCircle,
   Info,
+  FolderOpen,
 } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { cn } from "../../lib/utils";
@@ -21,6 +22,7 @@ import {
   ExecutionConfig,
   DryRunResult,
   Server as ServerType,
+  ServerGroup,
   Deployment,
 } from "../../lib/tauri";
 import { parseError } from "../../lib/errorHandler";
@@ -52,7 +54,9 @@ export function DeploymentWizard({
   onDeploymentStarted,
 }: DeploymentWizardProps) {
   const servers = useAppStore((state) => state.servers);
+  const groups = useAppStore((state) => state.groups);
   const loadServers = useAppStore((state) => state.loadServers);
+  const loadGroups = useAppStore((state) => state.loadGroups);
   const startDeployment = useAppStore((state) => state.startDeployment);
   const dryRunDeployment = useAppStore((state) => state.dryRunDeployment);
   const showError = useAppStore((state) => state.showError);
@@ -68,12 +72,15 @@ export function DeploymentWizard({
   const [dryRunResult, setDryRunResult] = useState<DryRunResult | null>(null);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Load servers on mount
+  // Load servers and groups on mount
   useEffect(() => {
-    if (open && servers.length === 0) {
-      loadServers();
+    if (open) {
+      if (servers.length === 0) {
+        loadServers();
+      }
+      loadGroups();
     }
-  }, [open, servers.length, loadServers]);
+  }, [open, servers.length, loadServers, loadGroups]);
 
   // Initialize variable values with defaults
   useEffect(() => {
@@ -150,6 +157,25 @@ export function DeploymentWizard({
     } else {
       setSelectedServerIds(servers.map((s) => s.id));
     }
+  };
+
+  // Handle group selection - select all servers in the group
+  const handleGroupSelect = (group: ServerGroup) => {
+    const groupServerIds = group.server_ids.filter((id) =>
+      servers.some((s) => s.id === id)
+    );
+    
+    // Check if all servers in the group are already selected
+    const allSelected = groupServerIds.every((id) => selectedServerIds.includes(id));
+    
+    if (allSelected) {
+      // Deselect all servers in the group
+      setSelectedServerIds((prev) => prev.filter((id) => !groupServerIds.includes(id)));
+    } else {
+      // Select all servers in the group
+      setSelectedServerIds((prev) => [...new Set([...prev, ...groupServerIds])]);
+    }
+    setValidationErrors([]);
   };
 
   // Handle variable change
@@ -292,9 +318,11 @@ export function DeploymentWizard({
             {currentStep === "servers" && (
               <ServerSelectionStep
                 servers={servers}
+                groups={groups}
                 selectedServerIds={selectedServerIds}
                 onToggle={handleServerToggle}
                 onSelectAll={handleSelectAll}
+                onGroupSelect={handleGroupSelect}
               />
             )}
 
@@ -373,17 +401,22 @@ export function DeploymentWizard({
 
 interface ServerSelectionStepProps {
   servers: ServerType[];
+  groups: ServerGroup[];
   selectedServerIds: string[];
   onToggle: (serverId: string) => void;
   onSelectAll: () => void;
+  onGroupSelect: (group: ServerGroup) => void;
 }
 
 function ServerSelectionStep({
   servers,
+  groups,
   selectedServerIds,
   onToggle,
   onSelectAll,
+  onGroupSelect,
 }: ServerSelectionStepProps) {
+  const [selectionMode, setSelectionMode] = useState<"servers" | "groups">("servers");
   const allSelected = selectedServerIds.length === servers.length && servers.length > 0;
 
   // Group servers by environment
@@ -401,22 +434,71 @@ function ServerSelectionStep({
     dev: "Development",
   };
 
+  // Check if a group is fully selected
+  const isGroupFullySelected = (group: ServerGroup) => {
+    const validServerIds = group.server_ids.filter((id) =>
+      servers.some((s) => s.id === id)
+    );
+    return validServerIds.length > 0 && validServerIds.every((id) => selectedServerIds.includes(id));
+  };
+
+  // Check if a group is partially selected
+  const isGroupPartiallySelected = (group: ServerGroup) => {
+    const validServerIds = group.server_ids.filter((id) =>
+      servers.some((s) => s.id === id)
+    );
+    const selectedCount = validServerIds.filter((id) => selectedServerIds.includes(id)).length;
+    return selectedCount > 0 && selectedCount < validServerIds.length;
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-medium">Select Target Servers</h3>
           <p className="text-sm text-muted-foreground">
-            Choose one or more servers to deploy to
+            Choose servers individually or select a group
           </p>
         </div>
-        <button
-          onClick={onSelectAll}
-          className="text-sm text-primary hover:underline"
-        >
-          {allSelected ? "Deselect All" : "Select All"}
-        </button>
+        {selectionMode === "servers" && (
+          <button
+            onClick={onSelectAll}
+            className="text-sm text-primary hover:underline"
+          >
+            {allSelected ? "Deselect All" : "Select All"}
+          </button>
+        )}
       </div>
+
+      {/* Selection Mode Toggle */}
+      {groups.length > 0 && (
+        <div className="flex gap-2 p-1 bg-secondary rounded-lg">
+          <button
+            onClick={() => setSelectionMode("servers")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+              selectionMode === "servers"
+                ? "bg-background shadow-sm"
+                : "hover:bg-background/50"
+            )}
+          >
+            <Server className="w-4 h-4" />
+            Individual Servers
+          </button>
+          <button
+            onClick={() => setSelectionMode("groups")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
+              selectionMode === "groups"
+                ? "bg-background shadow-sm"
+                : "hover:bg-background/50"
+            )}
+          >
+            <FolderOpen className="w-4 h-4" />
+            Server Groups
+          </button>
+        </div>
+      )}
 
       {servers.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">
@@ -424,7 +506,65 @@ function ServerSelectionStep({
           <p>No servers available</p>
           <p className="text-sm">Add servers in the Servers panel first</p>
         </div>
+      ) : selectionMode === "groups" ? (
+        /* Group Selection Mode */
+        <div className="space-y-2">
+          {groups.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No groups available</p>
+              <p className="text-sm">Create groups to organize servers</p>
+            </div>
+          ) : (
+            groups.map((group) => {
+              const validServerCount = group.server_ids.filter((id) =>
+                servers.some((s) => s.id === id)
+              ).length;
+              const isFullySelected = isGroupFullySelected(group);
+              const isPartiallySelected = isGroupPartiallySelected(group);
+
+              return (
+                <label
+                  key={group.id}
+                  className={cn(
+                    "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+                    isFullySelected
+                      ? "border-primary bg-primary/5"
+                      : isPartiallySelected
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-border hover:border-primary/50"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isFullySelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = isPartiallySelected;
+                    }}
+                    onChange={() => onGroupSelect(group)}
+                    className="w-4 h-4 rounded border-border"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <FolderOpen className="w-4 h-4 text-muted-foreground" />
+                      <span className="font-medium truncate">{group.name}</span>
+                    </div>
+                    {group.description && (
+                      <p className="text-xs text-muted-foreground truncate">
+                        {group.description}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-sm text-muted-foreground">
+                    {validServerCount} server{validServerCount !== 1 ? "s" : ""}
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
       ) : (
+        /* Individual Server Selection Mode */
         <div className="space-y-4">
           {envOrder.map((env) => {
             const envServers = serversByEnv[env];
