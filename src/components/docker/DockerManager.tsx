@@ -7,7 +7,7 @@ import { ContainerList } from "./ContainerList";
 import { ImageList } from "./ImageList";
 import { VolumeList } from "./VolumeList";
 import { NetworkList } from "./NetworkList";
-import { LoadingSpinner } from "../ui";
+import { Button, EmptyState, PageHeader, SkeletonMetric } from "../ui";
 
 type DockerTab = "containers" | "images" | "volumes" | "networks";
 
@@ -72,19 +72,19 @@ export function DockerManager() {
 
   if (!selectedServerId) {
     return (
-      <div className="h-full flex flex-col p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Box className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">Docker Manager</h2>
-        </div>
+      <div className="h-full flex flex-col p-6">
+        <PageHeader
+          title="Docker Manager"
+          icon={<Box className="w-5 h-5" />}
+          description="Manage containers, images, volumes and networks"
+        />
         {servers.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-4">
-              <Server className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">No servers configured</h3>
-            <p className="text-muted-foreground">Add a server first to manage Docker</p>
-          </div>
+          <EmptyState
+            icon={<Server className="w-8 h-8" />}
+            title="No servers configured"
+            description="Add a server first to manage Docker"
+            className="flex-1"
+          />
         ) : (
           <div className="flex-1 overflow-auto">
             <p className="text-sm text-muted-foreground mb-4">Select a server to manage Docker</p>
@@ -93,15 +93,15 @@ export function DockerManager() {
                 <div
                   key={server.id}
                   onClick={() => setSelectedServerId(server.id)}
-                  className="p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 cursor-pointer transition-all"
+                  className="p-4 rounded-xl border border-border hover:border-primary/50 hover:bg-accent/50 cursor-pointer transition-all duration-200"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-secondary">
+                    <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
                       <Server className="w-5 h-5" />
                     </div>
                     <div>
                       <h3 className="font-medium">{server.name}</h3>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-sm text-muted-foreground font-mono">
                         {server.username}@{server.host}
                       </p>
                     </div>
@@ -118,42 +118,46 @@ export function DockerManager() {
   const selectedServer = servers.find((s) => s.id === selectedServerId);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col p-6">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSelectedServerId(null)}
-            className="text-muted-foreground hover:text-foreground"
+            className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
             ← Back
           </button>
-          <Box className="w-5 h-5 text-primary" />
+          <div className="p-2 rounded-lg bg-primary/10 text-primary">
+            <Box className="w-5 h-5" />
+          </div>
           <div>
             <h2 className="font-semibold">{selectedServer?.name}</h2>
             {dockerInfo && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground font-mono">
                 Docker {dockerInfo.version} • {dockerInfo.containers_running} running
               </p>
             )}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={() => handlePrune("all")}
-            disabled={isPruning}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-destructive/10 text-destructive rounded hover:bg-destructive/20 disabled:opacity-50"
+            isLoading={isPruning}
+            leftIcon={<Trash2 className="w-4 h-4" />}
           >
-            <Trash2 className="w-4 h-4" />
-            {isPruning ? "Pruning..." : "Prune All"}
-          </button>
-          <button
+            Prune All
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
             onClick={loadDockerInfo}
-            disabled={isLoading}
-            className="p-2 hover:bg-accent rounded"
+            isLoading={isLoading}
           >
-            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
-          </button>
+            <RefreshCw className="w-4 h-4" />
+          </Button>
         </div>
       </div>
 
@@ -170,8 +174,10 @@ export function DockerManager() {
 
       {/* Loading State */}
       {isLoading && !dockerInfo && (
-        <div className="flex-1 flex items-center justify-center">
-          <LoadingSpinner />
+        <div className="p-4 grid grid-cols-5 gap-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <SkeletonMetric key={i} />
+          ))}
         </div>
       )}
 

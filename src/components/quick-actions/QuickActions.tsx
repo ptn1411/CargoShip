@@ -1,10 +1,4 @@
-import {
-  Rocket,
-  FileEdit,
-  Terminal,
-  ChevronRight,
-  Zap,
-} from "lucide-react";
+import { ChevronRight, FileEdit, Rocket, Terminal, Zap } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 
@@ -27,29 +21,34 @@ function QuickActionButton({
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-3 p-3 rounded-lg border transition-all text-left w-full",
+        "flex items-center gap-3 p-4 rounded-xl border text-left w-full cursor-pointer",
+        "transition-all duration-200 ease-out",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
         variant === "primary"
-          ? "border-primary/50 bg-primary/5 hover:bg-primary/10"
-          : "border-border hover:border-primary/50 hover:bg-accent/50"
-      )}
-    >
+          ? "border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 hover:shadow-lg"
+          : "border-border bg-card hover:border-primary/30 hover:bg-accent/50 hover:shadow-md"
+      )}>
       <div
         className={cn(
-          "p-2 rounded-lg",
+          "p-2.5 rounded-lg",
           variant === "primary"
             ? "bg-primary/10 text-primary"
-            : "bg-secondary text-muted-foreground"
-        )}
-      >
+            : "bg-muted text-muted-foreground"
+        )}>
         {icon}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-sm">{label}</p>
+        <p className="font-semibold text-sm">{label}</p>
         {description && (
-          <p className="text-xs text-muted-foreground truncate">{description}</p>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {description}
+          </p>
         )}
       </div>
-      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      <ChevronRight
+        className="w-4 h-4 text-muted-foreground"
+        aria-hidden="true"
+      />
     </button>
   );
 }
@@ -101,28 +100,41 @@ export function QuickActions({
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Zap className="w-5 h-5 text-primary" />
-        <h3 className="font-medium">Quick Actions</h3>
+        <Zap className="w-5 h-5 text-primary" aria-hidden="true" />
+        <h3 className="font-semibold">Quick Actions</h3>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div
+        className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+        role="group"
+        aria-label="Quick actions">
         <QuickActionButton
           icon={<Rocket className="w-4 h-4" />}
           label="Deploy"
-          description={scripts.length > 0 ? `${scripts.length} scripts available` : "Create a script first"}
+          description={
+            scripts.length > 0
+              ? `${scripts.length} scripts available`
+              : "Create a script first"
+          }
           onClick={handleDeploy}
           variant="primary"
         />
         <QuickActionButton
           icon={<FileEdit className="w-4 h-4" />}
           label="Edit File"
-          description={servers.length > 0 ? "Browse server files" : "Add a server first"}
+          description={
+            servers.length > 0 ? "Browse server files" : "Add a server first"
+          }
           onClick={handleEditFile}
         />
         <QuickActionButton
           icon={<Terminal className="w-4 h-4" />}
           label="Open Terminal"
-          description={servers.length > 0 ? `${servers.length} servers` : "Add a server first"}
+          description={
+            servers.length > 0
+              ? `${servers.length} servers`
+              : "Add a server first"
+          }
           onClick={handleOpenTerminal}
         />
       </div>

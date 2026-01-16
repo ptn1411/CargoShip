@@ -1,14 +1,37 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CargoShip</title>
-  </head>
+<html lang="en" class="dark">
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#f1f5f9" media="(prefers-color-scheme: light)" />
+  <meta name="description" content="CargoShip - Professional SSH Management Tool" />
+  <title>CargoShip</title>
+  <!-- Prevent FOUC by checking theme preference before render -->
+  <script>
+    (function () {
+      const stored = localStorage.getItem('app-storage');
+      if (stored) {
+        try {
+          const { state } = JSON.parse(stored);
+          if (state?.theme === 'light') {
+            document.documentElement.classList.remove('dark');
+          } else if (state?.theme === 'system') {
+            const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.classList.toggle('dark', prefersDark);
+          }
+        } catch (e) { }
+      }
+    })();
+  </script>
+</head>
+
+<body class="antialiased">
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
 </html>

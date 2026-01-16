@@ -1,20 +1,22 @@
-import { useEffect, useState } from "react";
 import {
   Activity,
-  Server,
-  Cpu,
-  HardDrive,
-  MemoryStick,
-  RefreshCw,
   AlertTriangle,
   CheckCircle,
-  XCircle,
   Clock,
+  Cpu,
+  HardDrive,
+  LayoutDashboard,
+  MemoryStick,
+  RefreshCw,
+  Server,
+  XCircle,
 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ActivityLog, ServerStatusInfo } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
-import { ServerStatusInfo, ActivityLog } from "../../lib/tauri";
-import { QuickActions, FavoritesSection } from "../quick-actions";
+import { Button, PageHeader, SectionHeader, SkeletonCard } from "../ui";
+import { FavoritesSection, QuickActions } from "../quick-actions";
 
 interface QuickStatProps {
   label: string;
@@ -26,19 +28,22 @@ interface QuickStatProps {
 
 function QuickStat({ label, value, icon, color = "default" }: QuickStatProps) {
   const colorClasses = {
-    default: "bg-secondary text-foreground",
-    success: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-    warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-    danger: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+    default: "bg-muted/50 text-foreground",
+    success: "bg-green-500/10 text-green-500 dark:text-green-400",
+    warning: "bg-amber-500/10 text-amber-500 dark:text-amber-400",
+    danger: "bg-red-500/10 text-red-500 dark:text-red-400",
   };
 
   return (
-    <div className="flex items-center gap-3 p-4 rounded-lg border border-border bg-card">
-      <div className={cn("p-2 rounded-lg", colorClasses[color])}>
-        {icon}
-      </div>
+    <div
+      className={cn(
+        "flex items-center gap-4 p-4 rounded-xl border border-border",
+        "bg-card transition-all duration-200",
+        "hover:border-primary/30 hover:shadow-lg cursor-default"
+      )}>
+      <div className={cn("p-3 rounded-lg", colorClasses[color])}>{icon}</div>
       <div>
-        <p className="text-2xl font-semibold">{value}</p>
+        <p className="text-2xl font-bold font-mono tabular-nums">{value}</p>
         <p className="text-sm text-muted-foreground">{label}</p>
       </div>
     </div>
@@ -52,7 +57,9 @@ interface ServerStatusCardProps {
 
 function ServerStatusCard({ status, onClick }: ServerStatusCardProps) {
   const memoryPercent = status.metrics
-    ? Math.round((status.metrics.memory_used / status.metrics.memory_total) * 100)
+    ? Math.round(
+        (status.metrics.memory_used / status.metrics.memory_total) * 100
+      )
     : 0;
   const diskPercent = status.metrics
     ? Math.round((status.metrics.disk_used / status.metrics.disk_total) * 100)
@@ -61,30 +68,45 @@ function ServerStatusCard({ status, onClick }: ServerStatusCardProps) {
   return (
     <div
       className={cn(
-        "p-4 rounded-lg border border-border bg-card cursor-pointer transition-colors hover:bg-accent/50",
+        "p-4 rounded-xl border border-border bg-card cursor-pointer",
+        "transition-all duration-200 ease-out",
+        "hover:border-primary/50 hover:shadow-lg",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
         !status.online && "opacity-60"
       )}
       onClick={onClick}
-    >
+      onKeyDown={(e) => e.key === "Enter" && onClick?.()}
+      tabIndex={0}
+      role="button"
+      aria-label={`${status.server_name} - ${
+        status.online ? "Online" : "Offline"
+      }`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Server className="w-4 h-4 text-muted-foreground" />
-          <span className="font-medium truncate">{status.server_name}</span>
+          <Server
+            className="w-4 h-4 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <span className="font-semibold truncate">{status.server_name}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {status.online ? (
-            <CheckCircle className="w-4 h-4 text-green-500" />
+            <CheckCircle className="w-4 h-4 status-online" aria-hidden="true" />
           ) : (
-            <XCircle className="w-4 h-4 text-red-500" />
+            <XCircle className="w-4 h-4 status-offline" aria-hidden="true" />
           )}
-          <span className={cn("text-xs", status.online ? "text-green-500" : "text-red-500")}>
+          <span
+            className={cn(
+              "text-xs font-medium",
+              status.online ? "status-online" : "status-offline"
+            )}>
             {status.online ? "Online" : "Offline"}
           </span>
         </div>
       </div>
 
       {status.online && status.metrics && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <MetricBar
             icon={<Cpu className="w-3 h-3" />}
             label="CPU"
@@ -124,23 +146,37 @@ interface MetricBarProps {
 
 function MetricBar({ icon, label, value, max, warning }: MetricBarProps) {
   const percent = Math.min((value / max) * 100, 100);
-  const getColor = () => {
-    if (warning) return "bg-red-500";
-    if (percent > 80) return "bg-yellow-500";
-    return "bg-green-500";
+  const getColorClass = () => {
+    if (warning) return "metric-danger";
+    if (percent > 80) return "metric-warning";
+    return "metric-safe";
   };
 
   return (
     <div className="flex items-center gap-2">
-      <div className="text-muted-foreground">{icon}</div>
-      <span className="text-xs w-8 text-muted-foreground">{label}</span>
-      <div className="flex-1 h-2 bg-secondary rounded-full overflow-hidden">
+      <div className="text-muted-foreground" aria-hidden="true">
+        {icon}
+      </div>
+      <span className="text-xs w-8 text-muted-foreground font-medium">
+        {label}
+      </span>
+      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
         <div
-          className={cn("h-full transition-all", getColor())}
+          className={cn(
+            "h-full rounded-full transition-all duration-300",
+            getColorClass()
+          )}
           style={{ width: `${percent}%` }}
+          role="progressbar"
+          aria-valuenow={value}
+          aria-valuemin={0}
+          aria-valuemax={max}
+          aria-label={`${label}: ${value}%`}
         />
       </div>
-      <span className="text-xs w-8 text-right">{value}%</span>
+      <span className="text-xs w-10 text-right font-mono tabular-nums">
+        {value}%
+      </span>
     </div>
   );
 }
@@ -156,11 +192,11 @@ function ActivityItem({ activity }: ActivityItemProps) {
       case "deployment_completed":
         return <Activity className="w-4 h-4 text-blue-500" />;
       case "server_connected":
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
+        return <CheckCircle className="w-4 h-4 status-online" />;
       case "server_disconnected":
-        return <XCircle className="w-4 h-4 text-red-500" />;
+        return <XCircle className="w-4 h-4 status-offline" />;
       case "alert_triggered":
-        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+        return <AlertTriangle className="w-4 h-4 status-warning" />;
       default:
         return <Clock className="w-4 h-4 text-muted-foreground" />;
     }
@@ -181,15 +217,21 @@ function ActivityItem({ activity }: ActivityItemProps) {
   };
 
   return (
-    <div className="flex items-start gap-3 py-2">
-      <div className="mt-0.5">{getIcon()}</div>
+    <div className="flex items-start gap-3 py-3 group">
+      <div className="mt-0.5" aria-hidden="true">
+        {getIcon()}
+      </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm">{activity.action.replace(/_/g, " ")}</p>
+        <p className="text-sm font-medium capitalize">
+          {activity.action.replace(/_/g, " ")}
+        </p>
         {activity.details && (
-          <p className="text-xs text-muted-foreground truncate">{activity.details}</p>
+          <p className="text-xs text-muted-foreground truncate">
+            {activity.details}
+          </p>
         )}
       </div>
-      <span className="text-xs text-muted-foreground whitespace-nowrap">
+      <span className="text-xs text-muted-foreground whitespace-nowrap font-mono">
         {formatTime(activity.created_at)}
       </span>
     </div>
@@ -237,85 +279,112 @@ export function Dashboard() {
 
   // Calculate average metrics
   const onlineServers = serverStatusList.filter((s) => s.online && s.metrics);
-  const avgCpu = onlineServers.length > 0
-    ? Math.round(onlineServers.reduce((sum, s) => sum + (s.metrics?.cpu_percent || 0), 0) / onlineServers.length)
-    : 0;
+  const avgCpu =
+    onlineServers.length > 0
+      ? Math.round(
+          onlineServers.reduce(
+            (sum, s) => sum + (s.metrics?.cpu_percent || 0),
+            0
+          ) / onlineServers.length
+        )
+      : 0;
 
   return (
     <div className="h-full flex flex-col p-6 overflow-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-muted-foreground">Server monitoring overview</p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing || isLoadingMetrics}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg border border-border",
-            "hover:bg-accent transition-colors disabled:opacity-50"
-          )}
-        >
-          <RefreshCw className={cn("w-4 h-4", (isRefreshing || isLoadingMetrics) && "animate-spin")} />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Server monitoring overview"
+        icon={<LayoutDashboard className="w-5 h-5" />}
+        actions={
+          <Button
+            variant="secondary"
+            onClick={handleRefresh}
+            isLoading={isRefreshing || isLoadingMetrics}
+            leftIcon={<RefreshCw className="w-4 h-4" />}
+          >
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Quick Actions - Requirements 7.1 */}
-      <div className="mb-6">
+      <section className="mb-8" aria-label="Quick Actions">
         <QuickActions />
-      </div>
+      </section>
 
       {/* Favorites Section - Requirements 7.2 */}
-      <div className="mb-6">
+      <section className="mb-8" aria-label="Favorites">
         <FavoritesSection maxItems={4} />
-      </div>
+      </section>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <QuickStat
-          label="Total Servers"
-          value={servers.length}
-          icon={<Server className="w-5 h-5" />}
-        />
-        <QuickStat
-          label="Online"
-          value={onlineCount}
-          icon={<CheckCircle className="w-5 h-5" />}
-          color="success"
-        />
-        <QuickStat
-          label="Offline"
-          value={offlineCount}
-          icon={<XCircle className="w-5 h-5" />}
-          color={offlineCount > 0 ? "danger" : "default"}
-        />
-        <QuickStat
-          label="Active Alerts"
-          value={alertCount}
-          icon={<AlertTriangle className="w-5 h-5" />}
-          color={alertCount > 0 ? "warning" : "default"}
-        />
-      </div>
+      <section className="mb-8" aria-label="Statistics">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <QuickStat
+            label="Total Servers"
+            value={servers.length}
+            icon={<Server className="w-5 h-5" aria-hidden="true" />}
+          />
+          <QuickStat
+            label="Online"
+            value={onlineCount}
+            icon={<CheckCircle className="w-5 h-5" aria-hidden="true" />}
+            color="success"
+          />
+          <QuickStat
+            label="Offline"
+            value={offlineCount}
+            icon={<XCircle className="w-5 h-5" aria-hidden="true" />}
+            color={offlineCount > 0 ? "danger" : "default"}
+          />
+          <QuickStat
+            label="Active Alerts"
+            value={alertCount}
+            icon={<AlertTriangle className="w-5 h-5" aria-hidden="true" />}
+            color={alertCount > 0 ? "warning" : "default"}
+          />
+        </div>
+      </section>
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
         {/* Server Status Overview */}
-        <div className="lg:col-span-2 flex flex-col">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-muted-foreground" />
-            Server Status
-            {avgCpu > 0 && (
-              <span className="text-sm text-muted-foreground ml-auto">
-                Avg CPU: {avgCpu}%
-              </span>
-            )}
-          </h2>
+        <section
+          className="lg:col-span-2 flex flex-col"
+          aria-label="Server Status">
+          <SectionHeader
+            title="Server Status"
+            icon={<Cpu className="w-5 h-5" />}
+            actions={
+              avgCpu > 0 && (
+                <span className="text-sm text-muted-foreground font-mono">
+                  Avg CPU:{" "}
+                  <span className="text-foreground font-semibold">{avgCpu}%</span>
+                </span>
+              )
+            }
+          />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-auto flex-1">
-            {serverStatusList.length === 0 ? (
-              <div className="col-span-2 flex items-center justify-center p-8 text-muted-foreground">
-                <p>No servers configured. Add servers to see their status.</p>
+            {isLoadingMetrics && serverStatusList.length === 0 ? (
+              <>
+                {[1, 2, 3, 4].map((i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </>
+            ) : serverStatusList.length === 0 ? (
+              <div className="col-span-2 flex flex-col items-center justify-center p-12 rounded-xl border border-dashed border-border bg-card/50">
+                <Server
+                  className="w-12 h-12 text-muted-foreground/50 mb-4"
+                  aria-hidden="true"
+                />
+                <p className="text-muted-foreground text-center">
+                  No servers configured.
+                  <br />
+                  <span className="text-sm">
+                    Add servers to see their status.
+                  </span>
+                </p>
               </div>
             ) : (
               serverStatusList.map((status) => (
@@ -327,18 +396,22 @@ export function Dashboard() {
               ))
             )}
           </div>
-        </div>
+        </section>
 
         {/* Recent Activity Timeline */}
-        <div className="flex flex-col">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-muted-foreground" />
-            Recent Activity
-          </h2>
-          <div className="flex-1 overflow-auto border border-border rounded-lg bg-card p-4">
+        <section className="flex flex-col" aria-label="Recent Activity">
+          <SectionHeader
+            title="Recent Activity"
+            icon={<Activity className="w-5 h-5" />}
+          />
+          <div className="flex-1 overflow-auto rounded-xl border border-border bg-card p-4">
             {recentActivity.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <p>No recent activity</p>
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-8">
+                <Clock
+                  className="w-10 h-10 text-muted-foreground/50 mb-3"
+                  aria-hidden="true"
+                />
+                <p className="text-sm">No recent activity</p>
               </div>
             ) : (
               <div className="divide-y divide-border">
@@ -348,7 +421,7 @@ export function Dashboard() {
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

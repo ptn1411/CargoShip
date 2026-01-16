@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { transferEventApi } from './transfer';
+import { batchEventApi } from './batch';
 
 // ============================================================================
 // Monitoring Types
@@ -124,4 +126,12 @@ export const monitorEventApi = {
   
   onAlertTriggered: (callback: (payload: AlertTriggeredPayload) => void): Promise<UnlistenFn> =>
     listen<AlertTriggeredPayload>("alert-triggered", (event) => callback(event.payload)),
+};
+
+
+// Alias for backward compatibility
+export const phase4EventApi = {
+  ...monitorEventApi,
+  ...transferEventApi,
+  ...batchEventApi,
 };

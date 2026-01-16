@@ -7,6 +7,7 @@ import { DomainForm } from "./DomainForm";
 import { ConfigEditor } from "./ConfigEditor";
 import { SslManager } from "./SslManager";
 import { NginxStatus } from "./NginxStatus";
+import { Button, EmptyState } from "../ui";
 
 type Tab = "domains" | "ssl" | "config";
 
@@ -103,11 +104,13 @@ export function NginxManager() {
   void selectedServer;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col p-6">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div className="flex items-center gap-3">
-          <Globe className="w-5 h-5 text-primary" />
+          <div className="p-2 rounded-lg bg-primary/10 text-primary">
+            <Globe className="w-5 h-5" />
+          </div>
           <h2 className="text-lg font-semibold">Nginx Manager</h2>
         </div>
         
@@ -116,7 +119,7 @@ export function NginxManager() {
           <select
             value={selectedServerId || ""}
             onChange={(e) => setSelectedServerId(e.target.value || null)}
-            className="px-3 py-1.5 bg-background border border-border rounded-md text-sm"
+            className="px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="">Select Server</option>
             {servers.map((server) => (
@@ -128,34 +131,33 @@ export function NginxManager() {
 
           {selectedServerId && (
             <>
-              <button
+              <Button
+                variant="outline"
+                size="icon"
                 onClick={handleRefresh}
-                disabled={isLoading}
-                className="p-2 hover:bg-accent rounded-md transition-colors"
-                title="Refresh"
+                isLoading={isLoading}
               >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-              </button>
+                <RefreshCw className="w-4 h-4" />
+              </Button>
               
-              <button
+              <Button
                 onClick={() => setShowDomainForm(true)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
+                leftIcon={<Plus className="w-4 h-4" />}
               >
-                <Plus className="w-4 h-4" />
                 Add Domain
-              </button>
+              </Button>
             </>
           )}
         </div>
       </div>
 
       {!selectedServerId ? (
-        <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center">
-            <Globe className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            <p>Select a server to manage Nginx</p>
-          </div>
-        </div>
+        <EmptyState
+          icon={<Globe className="w-8 h-8" />}
+          title="Select a server"
+          description="Choose a server to manage Nginx configuration"
+          className="flex-1"
+        />
       ) : (
         <>
           {/* Status Bar */}

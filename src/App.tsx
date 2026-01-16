@@ -1,20 +1,20 @@
-import { useEffect, useState, useCallback } from "react";
-import { Sidebar, MainContent, StatusBar } from "./components/layout";
-import { ServerList } from "./components/servers";
-import { GroupList } from "./components/groups";
-import { FileBrowser } from "./components/files";
-import { TerminalContainer } from "./components/terminal";
-import { ScriptManagement } from "./components/scripts";
-import { FileEditor, EditorModal } from "./components/editor";
+import { useCallback, useEffect, useState } from "react";
 import { Dashboard } from "./components/dashboard";
-import { ToastContainer } from "./components/ui";
-import { CommandPalette } from "./components/quick-actions";
-import { SnippetList } from "./components/snippets";
-import { SshKeyList } from "./components/ssh-keys";
-import { NginxManager } from "./components/nginx";
 import { DatabaseManager } from "./components/database";
 import { DockerManager } from "./components/docker";
-import { useAppStore, setupEventListeners } from "./store";
+import { EditorModal, FileEditor } from "./components/editor";
+import { FileBrowser } from "./components/files";
+import { GroupList } from "./components/groups";
+import { MainContent, Sidebar, StatusBar } from "./components/layout";
+import { NginxManager } from "./components/nginx";
+import { CommandPalette } from "./components/quick-actions";
+import { ScriptManagement } from "./components/scripts";
+import { ServerList } from "./components/servers";
+import { SnippetList } from "./components/snippets";
+import { SshKeyList } from "./components/ssh-keys";
+import { TerminalContainer } from "./components/terminal";
+import { ToastContainer } from "./components/ui";
+import { setupEventListeners, useAppStore } from "./store";
 
 function App() {
   const sidebarItem = useAppStore((state) => state.sidebarItem);
@@ -26,10 +26,10 @@ function App() {
   const removeToast = useAppStore((state) => state.removeToast);
   const loadEditorSettings = useAppStore((state) => state.loadEditorSettings);
   const openFiles = useAppStore((state) => state.openFiles);
-  
+
   // Editor modal state
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
-  
+
   // Command palette state - Requirements 7.3
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -40,6 +40,7 @@ function App() {
 
   // Command palette keyboard shortcut (Ctrl+P) - Requirements 7.3
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Command palette: Ctrl+P / Cmd+P
     if ((e.ctrlKey || e.metaKey) && e.key === "p") {
       e.preventDefault();
       setIsCommandPaletteOpen(true);
@@ -77,7 +78,7 @@ function App() {
   // Detect system theme preference
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    
+
     const updateTheme = () => {
       if (theme === "system") {
         document.documentElement.classList.toggle("dark", mediaQuery.matches);
@@ -117,9 +118,16 @@ function App() {
       case "files":
         // Show FileBrowser - hide side editor when modal is open
         return (
-          <div className="h-full flex gap-4">
-            <div className={(openFiles.length > 0 && !isEditorModalOpen) ? "w-1/3 min-w-[300px] max-w-[400px]" : "w-full"}>
-              <FileBrowser onOpenFileFullscreen={() => setIsEditorModalOpen(true)} />
+          <div className="h-full flex gap-4 p-6">
+            <div
+              className={
+                openFiles.length > 0 && !isEditorModalOpen
+                  ? "w-1/3 min-w-[300px] max-w-[400px]"
+                  : "w-full"
+              }>
+              <FileBrowser
+                onOpenFileFullscreen={() => setIsEditorModalOpen(true)}
+              />
             </div>
             {openFiles.length > 0 && !isEditorModalOpen && (
               <div className="flex-1 min-w-0">
@@ -148,7 +156,12 @@ function App() {
   };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-background text-foreground">
+      {/* Skip Link for Keyboard Users - WCAG 2.4.1 */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       <div className="flex-1 flex overflow-hidden">
         <Sidebar activeItem={sidebarItem} onItemSelect={setSidebarItem} />
         <MainContent>{renderContent()}</MainContent>
@@ -158,13 +171,13 @@ function App() {
         activeTerminals={terminalSessions.length}
       />
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
-      
+
       {/* Editor Modal - Fullscreen */}
-      <EditorModal 
-        isOpen={isEditorModalOpen} 
-        onClose={() => setIsEditorModalOpen(false)} 
+      <EditorModal
+        isOpen={isEditorModalOpen}
+        onClose={() => setIsEditorModalOpen(false)}
       />
-      
+
       {/* Command Palette - Requirements 7.3 */}
       <CommandPalette
         isOpen={isCommandPaletteOpen}

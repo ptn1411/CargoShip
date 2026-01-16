@@ -478,5 +478,19 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .await
         .ok();
 
+    // Create app_settings table for storing application settings
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create app_settings table: {}", e)))?;
+
     Ok(())
 }

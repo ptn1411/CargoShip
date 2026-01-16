@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Server, Loader2, Monitor, LayoutGrid, List, Terminal, Layers, Settings } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
@@ -10,7 +10,7 @@ import { TerminalSnapLayout } from "./TerminalSnapLayout";
 import { MultiplexerSessionDialog } from "./MultiplexerSessionDialog";
 import { TerminalSettings, TerminalSettingsData, DEFAULT_TERMINAL_SETTINGS } from "./TerminalSettings";
 import { ServerSelectionGrid } from "../ui";
-import { localTerminalApi, terminalApi, MultiplexerSession } from "../../lib/tauri";
+import { localTerminalApi, terminalApi, MultiplexerSession, settingsApi } from "../../lib/tauri";
 import { SnippetPicker } from "../snippets";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -47,6 +47,41 @@ export function TerminalContainer() {
   const [terminalSettings, setTerminalSettings] = useState<TerminalSettingsData>(DEFAULT_TERMINAL_SETTINGS);
 
   const showSuccess = useAppStore((state) => state.showSuccess);
+
+  // Load terminal settings from database on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const saved = await settingsApi.getTerminalSettings();
+        setTerminalSettings({
+          theme: saved.theme as TerminalSettingsData["theme"],
+          fontSize: saved.font_size,
+          fontFamily: saved.font_family,
+          cursorStyle: saved.cursor_style as TerminalSettingsData["cursorStyle"],
+          cursorBlink: saved.cursor_blink,
+        });
+      } catch (error) {
+        console.error("Failed to load terminal settings:", error);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  // Save terminal settings to database when changed
+  const handleSettingsChange = async (newSettings: TerminalSettingsData) => {
+    setTerminalSettings(newSettings);
+    try {
+      await settingsApi.saveTerminalSettings({
+        theme: newSettings.theme,
+        font_size: newSettings.fontSize,
+        font_family: newSettings.fontFamily,
+        cursor_style: newSettings.cursorStyle,
+        cursor_blink: newSettings.cursorBlink,
+      });
+    } catch (error) {
+      console.error("Failed to save terminal settings:", error);
+    }
+  };
 
   // Combine SSH and local sessions
   const allSessions: ExtendedTerminalSession[] = [
@@ -159,7 +194,7 @@ export function TerminalContainer() {
   // No sessions state
   if (allSessions.length === 0) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Terminal</h2>
         </div>
@@ -219,8 +254,8 @@ export function TerminalContainer() {
   }
 
   return (
-    <div className="h-full flex flex-col -m-4">
-      {/* Tab Bar */}
+    <div className="h-full flex flex-col">
+        {/* Tab Bar */}
       <div className="flex items-center bg-secondary border-b border-border">
         {/* View Mode Toggle */}
         <div className="flex items-center border-r border-border">
@@ -413,7 +448,7 @@ export function TerminalContainer() {
         open={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
         settings={terminalSettings}
-        onSettingsChange={setTerminalSettings}
+        onSettingsChange={handleSettingsChange}
       />
 
       {/* Snippet Picker Dialog */}

@@ -401,7 +401,7 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
   // No server selected state
   if (!currentServerId) {
     return (
-      <div className="h-full flex flex-col">
+      <div className="h-full flex flex-col p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">File Browser</h2>
         </div>
@@ -417,7 +417,7 @@ export function FileBrowser({ onOpenFileFullscreen }: FileBrowserProps) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">

@@ -16,3 +16,4 @@ export * from './ssh-keys';
 export * from './nginx';
 export * from './database';
 export * from './docker';
+export * from './settings';

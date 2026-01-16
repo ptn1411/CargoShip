@@ -89,7 +89,7 @@ export function ScriptManagement() {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col p-6">
       {/* Tabs Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">

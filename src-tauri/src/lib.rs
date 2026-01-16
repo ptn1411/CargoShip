@@ -13,6 +13,7 @@ pub mod monitor;
 pub mod nginx;
 pub mod scripts;
 pub mod server;
+pub mod settings;
 pub mod snippets;
 pub mod ssh;
 pub mod sync;
@@ -34,6 +35,7 @@ use nginx::{NginxManager, NginxDomain, NginxStatus, SslCertificate, SslResult, C
 use scripts::{ScriptManager, DeploymentScript, CreateScriptInput, UpdateScriptInput, ValidationResult, TemplateLibrary, TemplateInfo, RollbackManager, RollbackInfo, ScriptEngine, ExecutionConfig, DryRunResult};
 use server::{CreateServerInput, Server, ServerManager, UpdateServerInput};
 use snippets::{SnippetLibrary, Snippet, CreateSnippetInput, UpdateSnippetInput, ImportResult as SnippetImportResult};
+use settings::{SettingsManager, TerminalSettings};
 use ssh::{CommandOutput, ConnectionStatus, ServerInfo, SshClient};
 use ssh::ConnectionPool;
 use ssh::{SshKeyManager, SshKey, CreateSshKeyInput, GeneratedKey};
@@ -59,6 +61,7 @@ pub struct AppState {
     pub monitor_service: Arc<MonitorService>,
     pub snippet_library: Arc<Mutex<SnippetLibrary>>,
     pub favorites_manager: Arc<Mutex<FavoritesManager>>,
+    pub settings_manager: Arc<SettingsManager>,
     pub nginx_manager: Arc<NginxManager>,
     pub database_manager: Arc<DatabaseManager>,
     pub docker_manager: Arc<DockerManager>,
@@ -1191,6 +1194,33 @@ async fn update_editor_settings(
         .map_err(|e| format!("Failed to write settings: {}", e))?;
     
     Ok(())
+}
+
+// ============================================================================
+// Terminal Settings Commands
+// ============================================================================
+
+/// Get terminal settings from database
+#[tauri::command]
+async fn get_terminal_settings(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<TerminalSettings, String> {
+    state.settings_manager
+        .get_terminal_settings()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Save terminal settings to database
+#[tauri::command]
+async fn save_terminal_settings(
+    state: tauri::State<'_, AppState>,
+    settings: TerminalSettings,
+) -> std::result::Result<(), String> {
+    state.settings_manager
+        .save_terminal_settings(&settings)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -3661,6 +3691,9 @@ pub fn run() {
                     FavoritesManager::new(db_pool.clone())
                 ));
 
+                // Initialize settings manager
+                let settings_manager = Arc::new(SettingsManager::new(db_pool.clone()));
+
                 // Initialize SSH key manager
                 let ssh_key_manager = Arc::new(SshKeyManager::new(db_pool.clone()));
 
@@ -3694,6 +3727,7 @@ pub fn run() {
                     monitor_service,
                     snippet_library,
                     favorites_manager,
+                    settings_manager,
                     nginx_manager,
                     database_manager,
                     docker_manager,
@@ -3788,6 +3822,9 @@ pub fn run() {
             // Editor settings commands (Task 6.3)
             get_editor_settings,
             update_editor_settings,
+            // Terminal settings commands
+            get_terminal_settings,
+            save_terminal_settings,
             // Script management commands (Task 10.1)
             create_script,
             update_script,
