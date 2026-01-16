@@ -24,6 +24,46 @@ pub struct DatabaseConnection {
     pub updated_at: String,
 }
 
+/// SQLite row mapping for database connections
+#[derive(Debug, sqlx::FromRow)]
+pub struct DbConnectionRow {
+    pub id: String,
+    pub server_id: String,
+    pub name: String,
+    pub db_type: String,
+    pub host: String,
+    pub port: i32,
+    pub username: String,
+    pub password: String,
+    pub database_name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<DbConnectionRow> for DatabaseConnection {
+    fn from(row: DbConnectionRow) -> Self {
+        let db_type = match row.db_type.to_lowercase().as_str() {
+            "mysql" => DatabaseType::MySQL,
+            "postgresql" | "postgres" => DatabaseType::PostgreSQL,
+            _ => DatabaseType::MySQL,
+        };
+        
+        DatabaseConnection {
+            id: row.id,
+            server_id: row.server_id,
+            name: row.name,
+            db_type,
+            host: row.host,
+            port: row.port as u16,
+            username: row.username,
+            password: row.password,
+            database: row.database_name,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
 /// Input for creating a database connection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateConnectionInput {
@@ -243,4 +283,99 @@ pub struct ExportOptions {
     pub format: ExportFormat,
     pub include_structure: bool,
     pub include_data: bool,
+}
+
+/// Query history entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryHistoryEntry {
+    pub id: String,
+    pub connection_id: String,
+    pub database: String,
+    pub query: String,
+    pub execution_time_ms: u64,
+    pub rows_affected: i64,
+    pub success: bool,
+    pub error: Option<String>,
+    pub executed_at: String,
+}
+
+/// SQLite row mapping for query history
+#[derive(Debug, sqlx::FromRow)]
+pub struct QueryHistoryRow {
+    pub id: String,
+    pub connection_id: String,
+    pub database_name: String,
+    pub query: String,
+    pub execution_time_ms: i64,
+    pub rows_affected: i64,
+    pub success: i32,
+    pub error: Option<String>,
+    pub executed_at: String,
+}
+
+impl From<QueryHistoryRow> for QueryHistoryEntry {
+    fn from(row: QueryHistoryRow) -> Self {
+        QueryHistoryEntry {
+            id: row.id,
+            connection_id: row.connection_id,
+            database: row.database_name,
+            query: row.query,
+            execution_time_ms: row.execution_time_ms as u64,
+            rows_affected: row.rows_affected,
+            success: row.success != 0,
+            error: row.error,
+            executed_at: row.executed_at,
+        }
+    }
+}
+
+/// Saved query (favorites)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedQuery {
+    pub id: String,
+    pub connection_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub query: String,
+    pub database: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// SQLite row mapping for saved queries
+#[derive(Debug, sqlx::FromRow)]
+pub struct SavedQueryRow {
+    pub id: String,
+    pub connection_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub query: String,
+    pub database_name: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl From<SavedQueryRow> for SavedQuery {
+    fn from(row: SavedQueryRow) -> Self {
+        SavedQuery {
+            id: row.id,
+            connection_id: row.connection_id,
+            name: row.name,
+            description: row.description,
+            query: row.query,
+            database: row.database_name,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
+
+/// Input for saving a query
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveQueryInput {
+    pub connection_id: Option<String>,
+    pub name: String,
+    pub description: Option<String>,
+    pub query: String,
+    pub database: Option<String>,
 }

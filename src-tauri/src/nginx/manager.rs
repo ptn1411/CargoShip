@@ -73,30 +73,61 @@ impl NginxManager {
         let server = self.get_server(server_id).await?;
         let mut domains = Vec::new();
 
-        // List sites-available
-        let list_cmd = "ls -1 /etc/nginx/sites-available/ 2>/dev/null | grep -v default";
-        let output = self.ssh_client.execute_command(&server, list_cmd, Some(10))?;
+        // Single batched command to get all site info at once
+        // Format: site_name|enabled(yes/no)|config_content (separated by ===SITE_SEPARATOR===)
+        let batch_cmd = r#"
+for site in $(ls -1 /etc/nginx/sites-available/ 2>/dev/null | grep -v default); do
+    if [ -L "/etc/nginx/sites-enabled/$site" ]; then
+        enabled="yes"
+    else
+        enabled="no"
+    fi
+    config=$(cat "/etc/nginx/sites-available/$site" 2>/dev/null)
+    echo "===SITE_START==="
+    echo "SITE_NAME:$site"
+    echo "ENABLED:$enabled"
+    echo "CONFIG_START"
+    echo "$config"
+    echo "CONFIG_END"
+    echo "===SITE_END==="
+done
+"#;
+        let output = self.ssh_client.execute_command(&server, batch_cmd, Some(30))?;
 
-        for site_name in output.stdout.lines() {
-            let site_name = site_name.trim();
-            if site_name.is_empty() {
-                continue;
+        // Parse the batched output
+        let mut current_site: Option<String> = None;
+        let mut current_enabled = false;
+        let mut current_config = String::new();
+        let mut in_config = false;
+
+        for line in output.stdout.lines() {
+            let line_trimmed = line.trim();
+            
+            if line_trimmed == "===SITE_START===" {
+                current_site = None;
+                current_enabled = false;
+                current_config.clear();
+                in_config = false;
+            } else if line_trimmed == "===SITE_END===" {
+                if let Some(ref site_name) = current_site {
+                    let config_path = format!("/etc/nginx/sites-available/{}", site_name);
+                    let domain_info = self.parse_nginx_config(&current_config, server_id, site_name, &config_path, current_enabled);
+                    domains.push(domain_info);
+                }
+            } else if line_trimmed.starts_with("SITE_NAME:") {
+                current_site = Some(line_trimmed.trim_start_matches("SITE_NAME:").to_string());
+            } else if line_trimmed.starts_with("ENABLED:") {
+                current_enabled = line_trimmed.trim_start_matches("ENABLED:") == "yes";
+            } else if line_trimmed == "CONFIG_START" {
+                in_config = true;
+            } else if line_trimmed == "CONFIG_END" {
+                in_config = false;
+            } else if in_config {
+                if !current_config.is_empty() {
+                    current_config.push('\n');
+                }
+                current_config.push_str(line);
             }
-
-            // Check if enabled
-            let enabled_cmd = format!("test -L /etc/nginx/sites-enabled/{} && echo yes || echo no", site_name);
-            let enabled_output = self.ssh_client.execute_command(&server, &enabled_cmd, Some(5))?;
-            let enabled = enabled_output.stdout.trim() == "yes";
-
-            // Read config to extract info
-            let config_path = format!("/etc/nginx/sites-available/{}", site_name);
-            let read_cmd = format!("cat {}", config_path);
-            let config_output = self.ssh_client.execute_command(&server, &read_cmd, Some(10))?;
-            let config_content = config_output.stdout;
-
-            // Parse config for domain info
-            let domain_info = self.parse_nginx_config(&config_content, server_id, site_name, &config_path, enabled);
-            domains.push(domain_info);
         }
 
         Ok(domains)

@@ -6,6 +6,12 @@ use std::collections::HashMap;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use std::thread;
+
+/// Maximum number of connection retry attempts
+const MAX_RETRY_ATTEMPTS: u32 = 3;
+/// Delay between retry attempts in milliseconds
+const RETRY_DELAY_MS: u64 = 500;
 
 /// Represents a pooled SSH connection with metadata for management
 pub struct PooledConnection {
@@ -179,12 +185,100 @@ pub fn create_ssh_session(host: &str, port: u16) -> Result<(Session, TcpStream)>
         .map_err(|e| AppError::ConnectionFailed(format!("Failed to clone TCP stream: {}", e)))?);
     
     // OPTIMIZATION 5: Set SSH timeout before handshake
-    session.set_timeout(8000); // 8 seconds in milliseconds
+    session.set_timeout(10000); // 10 seconds in milliseconds
     
-    session.handshake()
-        .map_err(|e| AppError::ConnectionFailed(format!("SSH handshake failed: {}", e)))?;
+    // Try handshake with different algorithm configurations
+    let handshake_result = try_handshake_with_algorithms(&mut session);
+    
+    if let Err(e) = handshake_result {
+        return Err(AppError::ConnectionFailed(format!(
+            "SSH handshake failed: {}. \n\nPossible solutions:\n\
+            1. Check if the server is reachable\n\
+            2. On server, add to /etc/ssh/sshd_config:\n   \
+               KexAlgorithms +diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha256\n\
+            3. Restart SSH: sudo systemctl restart sshd", e
+        )));
+    }
 
     Ok((session, tcp))
+}
+
+/// Try handshake with different algorithm configurations
+fn try_handshake_with_algorithms(session: &mut Session) -> std::result::Result<(), String> {
+    // Algorithm preference sets to try (from most compatible to most secure)
+    let kex_algorithms = [
+        // Try 1: Modern algorithms first
+        "curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,ecdh-sha2-nistp384,diffie-hellman-group-exchange-sha256,diffie-hellman-group16-sha512,diffie-hellman-group14-sha256",
+        // Try 2: Include older algorithms for compatibility
+        "diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha256,diffie-hellman-group14-sha1,ecdh-sha2-nistp256,curve25519-sha256",
+        // Try 3: Legacy algorithms for old servers
+        "diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1,diffie-hellman-group1-sha1",
+    ];
+    
+    let host_key_algorithms = "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,rsa-sha2-512,rsa-sha2-256,ssh-rsa";
+    let cipher_algorithms = "aes256-ctr,aes192-ctr,aes128-ctr,aes256-cbc,aes192-cbc,aes128-cbc,chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com";
+    
+    let mut last_error = String::new();
+    
+    for (i, kex) in kex_algorithms.iter().enumerate() {
+        // Set algorithm preferences (ignore errors - not all algorithms may be supported)
+        let _ = session.method_pref(ssh2::MethodType::Kex, kex);
+        let _ = session.method_pref(ssh2::MethodType::HostKey, host_key_algorithms);
+        let _ = session.method_pref(ssh2::MethodType::CryptCs, cipher_algorithms);
+        let _ = session.method_pref(ssh2::MethodType::CryptSc, cipher_algorithms);
+        
+        match session.handshake() {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                last_error = e.to_string();
+                // Only retry if it's a key exchange error
+                if !last_error.contains("Unable to exchange") && !last_error.contains("key exchange") {
+                    break;
+                }
+                // Log retry attempt (in debug builds)
+                #[cfg(debug_assertions)]
+                eprintln!("SSH handshake attempt {} failed: {}, trying next algorithm set...", i + 1, e);
+            }
+        }
+    }
+    
+    // Final attempt without any preferences (let libssh2 decide)
+    match session.handshake() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(last_error),
+    }
+}
+
+/// Create SSH session with automatic retry on transient failures
+pub fn create_ssh_session_with_retry(host: &str, port: u16) -> Result<(Session, TcpStream)> {
+    let mut last_error = None;
+    
+    for attempt in 1..=MAX_RETRY_ATTEMPTS {
+        match create_ssh_session(host, port) {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                let error_str = e.to_string();
+                // Only retry on transient errors
+                let is_transient = error_str.contains("Unable to exchange")
+                    || error_str.contains("Connection reset")
+                    || error_str.contains("Connection refused")
+                    || error_str.contains("timed out")
+                    || error_str.contains("temporarily unavailable");
+                
+                if !is_transient || attempt == MAX_RETRY_ATTEMPTS {
+                    return Err(e);
+                }
+                
+                last_error = Some(e);
+                
+                // Wait before retry with exponential backoff
+                let delay = RETRY_DELAY_MS * (1 << (attempt - 1));
+                thread::sleep(Duration::from_millis(delay));
+            }
+        }
+    }
+    
+    Err(last_error.unwrap_or_else(|| AppError::ConnectionFailed("Connection failed after retries".to_string())))
 }
 
 /// Helper function to connect with explicit timeout

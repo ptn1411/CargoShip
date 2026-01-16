@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Sidebar, MainContent, StatusBar } from "./components/layout";
 import { ServerList } from "./components/servers";
+import { GroupList } from "./components/groups";
 import { FileBrowser } from "./components/files";
 import { TerminalContainer } from "./components/terminal";
 import { ScriptManagement } from "./components/scripts";
@@ -110,6 +111,8 @@ function App() {
         return <Dashboard />;
       case "servers":
         return <ServerList />;
+      case "groups":
+        return <GroupList />;
       case "files":
         // Show FileBrowser - hide side editor when modal is open
         return (

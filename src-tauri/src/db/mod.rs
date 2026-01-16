@@ -367,5 +367,86 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e)))?;
 
+    // Create database_connections table for storing database connection configs
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS database_connections (
+            id TEXT PRIMARY KEY,
+            server_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            db_type TEXT NOT NULL,
+            host TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            database_name TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections table: {}", e)))?;
+
+    // Create indexes for database_connections
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_db_connections_server ON database_connections(server_id)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections server index: {}", e)))?;
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_db_connections_name ON database_connections(name)")
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections name index: {}", e)))?;
+
+    // Create query_history table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS query_history (
+            id TEXT PRIMARY KEY,
+            connection_id TEXT NOT NULL,
+            database_name TEXT NOT NULL,
+            query TEXT NOT NULL,
+            execution_time_ms INTEGER NOT NULL,
+            rows_affected INTEGER NOT NULL DEFAULT 0,
+            success INTEGER NOT NULL DEFAULT 1,
+            error TEXT,
+            executed_at TEXT NOT NULL,
+            FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create query_history table: {}", e)))?;
+
+    // Create index for query_history
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_query_history_connection ON query_history(connection_id, executed_at DESC)")
+        .execute(pool)
+        .await
+        .ok();
+
+    // Create saved_queries table
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS saved_queries (
+            id TEXT PRIMARY KEY,
+            connection_id TEXT,
+            name TEXT NOT NULL,
+            description TEXT,
+            query TEXT NOT NULL,
+            database_name TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (connection_id) REFERENCES database_connections(id) ON DELETE SET NULL
+        )
+        "#,
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::DatabaseError(format!("Failed to create saved_queries table: {}", e)))?;
+
     Ok(())
 }

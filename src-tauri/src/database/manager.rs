@@ -3,46 +3,89 @@ use crate::server::Server;
 use crate::ssh::SshClient;
 use anyhow::{anyhow, Result};
 use serde_json::json;
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// Database Manager - handles database operations via SSH
 pub struct DatabaseManager {
     ssh_client: Arc<SshClient>,
-    connections: Arc<Mutex<HashMap<String, DatabaseConnection>>>,
+    db_pool: SqlitePool,
 }
 
 impl DatabaseManager {
-    pub fn new(ssh_client: Arc<SshClient>) -> Self {
+    pub fn new(ssh_client: Arc<SshClient>, db_pool: SqlitePool) -> Self {
         Self {
             ssh_client,
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            db_pool,
         }
     }
 
-    /// Store a connection in memory
-    pub async fn add_connection(&self, conn: DatabaseConnection) {
-        let mut connections = self.connections.lock().await;
-        connections.insert(conn.id.clone(), conn);
+    /// Store a connection in SQLite
+    pub async fn add_connection(&self, conn: DatabaseConnection) -> Result<()> {
+        let db_type_str = match conn.db_type {
+            DatabaseType::MySQL => "mysql",
+            DatabaseType::PostgreSQL => "postgresql",
+        };
+        
+        sqlx::query(
+            r#"
+            INSERT INTO database_connections (id, server_id, name, db_type, host, port, username, password, database_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&conn.id)
+        .bind(&conn.server_id)
+        .bind(&conn.name)
+        .bind(db_type_str)
+        .bind(&conn.host)
+        .bind(conn.port as i32)
+        .bind(&conn.username)
+        .bind(&conn.password)
+        .bind(&conn.database)
+        .bind(&conn.created_at)
+        .bind(&conn.updated_at)
+        .execute(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to save connection: {}", e))?;
+        
+        Ok(())
     }
 
-    /// Get a connection by ID
+    /// Get a connection by ID from SQLite
     pub async fn get_connection(&self, id: &str) -> Option<DatabaseConnection> {
-        let connections = self.connections.lock().await;
-        connections.get(id).cloned()
+        let row = sqlx::query_as::<_, DbConnectionRow>(
+            "SELECT id, server_id, name, db_type, host, port, username, password, database_name, created_at, updated_at FROM database_connections WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.db_pool)
+        .await
+        .ok()??;
+        
+        Some(row.into())
     }
 
-    /// Remove a connection
-    pub async fn remove_connection(&self, id: &str) {
-        let mut connections = self.connections.lock().await;
-        connections.remove(id);
+    /// Remove a connection from SQLite
+    pub async fn remove_connection(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM database_connections WHERE id = ?")
+            .bind(id)
+            .execute(&self.db_pool)
+            .await
+            .map_err(|e| anyhow!("Failed to remove connection: {}", e))?;
+        
+        Ok(())
     }
 
-    /// List all connections
+    /// List all connections from SQLite
     pub async fn list_connections(&self) -> Vec<DatabaseConnection> {
-        let connections = self.connections.lock().await;
-        connections.values().cloned().collect()
+        let rows = sqlx::query_as::<_, DbConnectionRow>(
+            "SELECT id, server_id, name, db_type, host, port, username, password, database_name, created_at, updated_at FROM database_connections ORDER BY name"
+        )
+        .fetch_all(&self.db_pool)
+        .await
+        .unwrap_or_default();
+        
+        rows.into_iter().map(|r| r.into()).collect()
     }
 
     /// Test database connection
@@ -59,8 +102,9 @@ impl DatabaseManager {
                 )
             }
             DatabaseType::PostgreSQL => {
+                // Connect to 'postgres' database for testing connection
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c 'SELECT version();' 2>&1",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c 'SELECT version();' 2>&1",
                     conn.password, conn.host, conn.port, conn.username
                 )
             }
@@ -68,17 +112,37 @@ impl DatabaseManager {
 
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
 
-        if output.exit_code == 0 {
-            let version = output.stdout.lines().skip(1).next().map(|s| s.trim().to_string());
+        // With 2>&1, errors go to stdout, so check both
+        let combined = format!("{}{}", output.stdout, output.stderr);
+        let has_error = output.exit_code != 0 
+            || combined.to_lowercase().contains("error") 
+            || combined.contains("FATAL")
+            || combined.contains("could not connect")
+            || combined.contains("Connection refused");
+
+        if !has_error {
+            let version = output.stdout.lines()
+                .find(|line| !line.trim().is_empty() && !line.contains("---") && !line.contains("version"))
+                .map(|s| s.trim().to_string());
             Ok(ConnectionTestResult {
                 success: true,
                 message: "Connection successful".to_string(),
                 version,
             })
         } else {
+            // Get error message from stdout (due to 2>&1) or stderr
+            let error_msg = if !output.stdout.trim().is_empty() {
+                output.stdout.trim().to_string()
+            } else {
+                output.stderr.trim().to_string()
+            };
             Ok(ConnectionTestResult {
                 success: false,
-                message: output.stderr.trim().to_string(),
+                message: if error_msg.is_empty() { 
+                    format!("Connection failed with exit code {}", output.exit_code) 
+                } else { 
+                    error_msg 
+                },
                 version: None,
             })
         }
@@ -93,13 +157,14 @@ impl DatabaseManager {
         let cmd = match conn.db_type {
             DatabaseType::MySQL => {
                 format!(
-                    "mysql -h {} -P {} -u {} -p'{}' -N -e \"SELECT schema_name, NULL, NULL, default_character_set_name, default_collation_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys');\"",
+                    "mysql -h {} -P {} -u {} -p'{}' -N -e \"SELECT schema_name, NULL, NULL, default_character_set_name, default_collation_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys');\" 2>&1",
                     conn.host, conn.port, conn.username, conn.password
                 )
             }
             DatabaseType::PostgreSQL => {
+                // Connect to 'postgres' database to list all databases
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -t -A -F '|' -c \"SELECT datname, pg_size_pretty(pg_database_size(datname)), NULL, pg_encoding_to_char(encoding), datcollate FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres');\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -t -A -F '|' -c \"SELECT datname, pg_size_pretty(pg_database_size(datname)), NULL, pg_encoding_to_char(encoding), datcollate FROM pg_database WHERE datistemplate = false AND datname NOT IN ('postgres');\" 2>&1",
                     conn.password, conn.host, conn.port, conn.username
                 )
             }
@@ -107,8 +172,17 @@ impl DatabaseManager {
 
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
 
-        if output.exit_code != 0 {
-            return Err(anyhow!("Failed to list databases: {}", output.stderr));
+        // Check for errors in both stdout and stderr (2>&1 redirects stderr to stdout)
+        let combined_output = format!("{}{}", output.stdout, output.stderr);
+        if output.exit_code != 0 || combined_output.to_lowercase().contains("error") || combined_output.contains("FATAL") {
+            let error_msg = if !output.stderr.is_empty() {
+                output.stderr.trim().to_string()
+            } else if output.stdout.contains("psql:") || output.stdout.contains("ERROR") || output.stdout.contains("FATAL") {
+                output.stdout.trim().to_string()
+            } else {
+                format!("Command failed with exit code {}", output.exit_code)
+            };
+            return Err(anyhow!("Failed to list databases: {}", error_msg));
         }
 
         let mut databases = Vec::new();
@@ -657,7 +731,7 @@ impl DatabaseManager {
             }
             DatabaseType::PostgreSQL => {
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -t -A -F '|' -c \"SELECT usename, '*' FROM pg_user WHERE usename NOT IN ('postgres');\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -t -A -F '|' -c \"SELECT usename, '*' FROM pg_user WHERE usename NOT IN ('postgres');\"",
                     conn.password, conn.host, conn.port, conn.username
                 )
             }
@@ -747,7 +821,7 @@ impl DatabaseManager {
                 };
 
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"{}{}\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"{}{}\"",
                     conn.password, conn.host, conn.port, conn.username, create_user, grant
                 )
             }
@@ -779,7 +853,7 @@ impl DatabaseManager {
             }
             DatabaseType::PostgreSQL => {
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"DROP USER {};\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"DROP USER {};\"",
                     conn.password, conn.host, conn.port, conn.username, username
                 )
             }
@@ -813,7 +887,7 @@ impl DatabaseManager {
             DatabaseType::PostgreSQL => {
                 let encoding = input.charset.as_deref().unwrap_or("UTF8");
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"CREATE DATABASE {} ENCODING '{}';\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"CREATE DATABASE {} ENCODING '{}';\"",
                     conn.password, conn.host, conn.port, conn.username, input.name, encoding
                 )
             }
@@ -844,7 +918,7 @@ impl DatabaseManager {
             }
             DatabaseType::PostgreSQL => {
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"DROP DATABASE {};\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"DROP DATABASE {};\"",
                     conn.password, conn.host, conn.port, conn.username, database
                 )
             }
@@ -974,7 +1048,7 @@ impl DatabaseManager {
             }
             DatabaseType::PostgreSQL => {
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -t -A -c \"SELECT string_agg(privilege_type, ', ') FROM information_schema.role_table_grants WHERE grantee = '{}';\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -t -A -c \"SELECT string_agg(privilege_type, ', ') FROM information_schema.role_table_grants WHERE grantee = '{}';\"",
                     conn.password, conn.host, conn.port, conn.username, username
                 )
             }
@@ -1022,11 +1096,11 @@ impl DatabaseManager {
             DatabaseType::PostgreSQL => {
                 match database {
                     Some(db) => format!(
-                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"GRANT {} ON DATABASE {} TO {};\"",
+                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"GRANT {} ON DATABASE {} TO {};\"",
                         conn.password, conn.host, conn.port, conn.username, priv_str, db, username
                     ),
                     None => format!(
-                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"ALTER USER {} WITH {};\"",
+                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"ALTER USER {} WITH {};\"",
                         conn.password, conn.host, conn.port, conn.username, username, priv_str
                     ),
                 }
@@ -1068,11 +1142,11 @@ impl DatabaseManager {
             DatabaseType::PostgreSQL => {
                 match database {
                     Some(db) => format!(
-                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"REVOKE {} ON DATABASE {} FROM {};\"",
+                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"REVOKE {} ON DATABASE {} FROM {};\"",
                         conn.password, conn.host, conn.port, conn.username, priv_str, db, username
                     ),
                     None => format!(
-                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"ALTER USER {} WITH NO{};\"",
+                        "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"ALTER USER {} WITH NO{};\"",
                         conn.password, conn.host, conn.port, conn.username, username, priv_str
                     ),
                 }
@@ -1106,7 +1180,7 @@ impl DatabaseManager {
             }
             DatabaseType::PostgreSQL => {
                 format!(
-                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -c \"ALTER USER {} WITH PASSWORD '{}';\"",
+                    "PGPASSWORD='{}' psql -h {} -p {} -U {} -d postgres -c \"ALTER USER {} WITH PASSWORD '{}';\"",
                     conn.password, conn.host, conn.port, conn.username, username, new_password
                 )
             }
@@ -1395,5 +1469,173 @@ impl DatabaseManager {
             page_size,
             primary_key_columns,
         })
+    }
+
+    // ==================== Query History ====================
+
+    /// Add entry to query history
+    pub async fn add_to_history(
+        &self,
+        connection_id: &str,
+        database: &str,
+        query: &str,
+        result: &QueryResult,
+    ) -> Result<()> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        sqlx::query(
+            r#"
+            INSERT INTO query_history 
+            (id, connection_id, database_name, query, execution_time_ms, rows_affected, success, error, executed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&id)
+        .bind(connection_id)
+        .bind(database)
+        .bind(query)
+        .bind(result.execution_time_ms as i64)
+        .bind(result.affected_rows)
+        .bind(if result.error.is_none() { 1 } else { 0 })
+        .bind(&result.error)
+        .bind(&now)
+        .execute(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to add query history: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Get query history for a connection
+    pub async fn get_query_history(&self, connection_id: &str, limit: i32) -> Result<Vec<QueryHistoryEntry>> {
+        let rows: Vec<QueryHistoryRow> = sqlx::query_as(
+            "SELECT * FROM query_history WHERE connection_id = ? ORDER BY executed_at DESC LIMIT ?",
+        )
+        .bind(connection_id)
+        .bind(limit)
+        .fetch_all(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to get query history: {}", e))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    /// Clear query history for a connection
+    pub async fn clear_query_history(&self, connection_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM query_history WHERE connection_id = ?")
+            .bind(connection_id)
+            .execute(&self.db_pool)
+            .await
+            .map_err(|e| anyhow!("Failed to clear query history: {}", e))?;
+
+        Ok(())
+    }
+
+    // ==================== Saved Queries ====================
+
+    /// Save a query
+    pub async fn save_query(&self, input: SaveQueryInput) -> Result<SavedQuery> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        sqlx::query(
+            r#"
+            INSERT INTO saved_queries 
+            (id, connection_id, name, description, query, database_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&id)
+        .bind(&input.connection_id)
+        .bind(&input.name)
+        .bind(&input.description)
+        .bind(&input.query)
+        .bind(&input.database)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to save query: {}", e))?;
+
+        Ok(SavedQuery {
+            id,
+            connection_id: input.connection_id,
+            name: input.name,
+            description: input.description,
+            query: input.query,
+            database: input.database,
+            created_at: now.clone(),
+            updated_at: now,
+        })
+    }
+
+    /// Get saved queries
+    pub async fn get_saved_queries(&self, connection_id: Option<&str>) -> Result<Vec<SavedQuery>> {
+        let rows: Vec<SavedQueryRow> = if let Some(conn_id) = connection_id {
+            sqlx::query_as(
+                "SELECT * FROM saved_queries WHERE connection_id = ? OR connection_id IS NULL ORDER BY name",
+            )
+            .bind(conn_id)
+            .fetch_all(&self.db_pool)
+            .await
+        } else {
+            sqlx::query_as(
+                "SELECT * FROM saved_queries ORDER BY name",
+            )
+            .fetch_all(&self.db_pool)
+            .await
+        }
+        .map_err(|e| anyhow!("Failed to get saved queries: {}", e))?;
+
+        Ok(rows.into_iter().map(|r| r.into()).collect())
+    }
+
+    /// Delete a saved query
+    pub async fn delete_saved_query(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM saved_queries WHERE id = ?")
+            .bind(id)
+            .execute(&self.db_pool)
+            .await
+            .map_err(|e| anyhow!("Failed to delete saved query: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Update a connection
+    pub async fn update_connection(&self, id: &str, input: UpdateConnectionInput) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        // Get current connection to merge updates
+        let current = self.get_connection(id).await
+            .ok_or_else(|| anyhow!("Connection not found: {}", id))?;
+        
+        let name = input.name.unwrap_or(current.name);
+        let host = input.host.unwrap_or(current.host);
+        let port = input.port.unwrap_or(current.port);
+        let username = input.username.unwrap_or(current.username);
+        let password = input.password.unwrap_or(current.password);
+        let database = input.database.or(current.database);
+        
+        sqlx::query(
+            r#"
+            UPDATE database_connections 
+            SET name = ?, host = ?, port = ?, username = ?, password = ?, database_name = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(&name)
+        .bind(&host)
+        .bind(port as i32)
+        .bind(&username)
+        .bind(&password)
+        .bind(&database)
+        .bind(&now)
+        .bind(id)
+        .execute(&self.db_pool)
+        .await
+        .map_err(|e| anyhow!("Failed to update connection: {}", e))?;
+
+        Ok(())
     }
 }

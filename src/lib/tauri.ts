@@ -1294,6 +1294,46 @@ export interface QueryResult {
   error: string | null;
 }
 
+export interface QueryHistoryEntry {
+  id: string;
+  connection_id: string;
+  database: string;
+  query: string;
+  execution_time_ms: number;
+  rows_affected: number;
+  success: boolean;
+  error: string | null;
+  executed_at: string;
+}
+
+export interface SavedQuery {
+  id: string;
+  connection_id: string | null;
+  name: string;
+  description: string | null;
+  query: string;
+  database: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaveQueryInput {
+  connection_id?: string;
+  name: string;
+  description?: string;
+  query: string;
+  database?: string;
+}
+
+export interface UpdateConnectionInput {
+  name?: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  database?: string;
+}
+
 export interface ExecuteQueryInput {
   connection_id: string;
   database: string;
@@ -1390,6 +1430,8 @@ export const databaseApi = {
     invoke<void>("db_remove_connection", { id }),
   testConnection: (connectionId: string) =>
     invoke<ConnectionTestResult>("db_test_connection", { connectionId }),
+  testConnectionInput: (input: CreateConnectionInput) =>
+    invoke<ConnectionTestResult>("db_test_connection_input", { input }),
 
   // Database Operations
   listDatabases: (connectionId: string) =>
@@ -1444,4 +1486,22 @@ export const databaseApi = {
     invoke<void>("db_revoke_privileges", { connectionId, username, host, privileges, database }),
   changeUserPassword: (connectionId: string, username: string, host: string, newPassword: string) =>
     invoke<void>("db_change_user_password", { connectionId, username, host, newPassword }),
+
+  // Query History
+  getQueryHistory: (connectionId: string, limit?: number) =>
+    invoke<QueryHistoryEntry[]>("db_get_query_history", { connectionId, limit: limit || 50 }),
+  clearQueryHistory: (connectionId: string) =>
+    invoke<void>("db_clear_query_history", { connectionId }),
+
+  // Saved Queries
+  saveQuery: (input: SaveQueryInput) =>
+    invoke<SavedQuery>("db_save_query", { input }),
+  getSavedQueries: (connectionId?: string) =>
+    invoke<SavedQuery[]>("db_get_saved_queries", { connectionId }),
+  deleteSavedQuery: (id: string) =>
+    invoke<void>("db_delete_saved_query", { id }),
+
+  // Connection update
+  updateConnection: (id: string, input: UpdateConnectionInput) =>
+    invoke<void>("db_update_connection", { id, input }),
 };

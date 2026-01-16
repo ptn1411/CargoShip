@@ -235,7 +235,7 @@ export interface AppState {
   isLoadingActivity: boolean;
 
   // UI
-  sidebarItem: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
+  sidebarItem: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
   theme: "light" | "dark" | "system";
 
   // Toasts
@@ -355,7 +355,7 @@ export interface AppState {
   loadRecentActivity: (limit?: number) => Promise<void>;
 
   // UI Actions
-  setSidebarItem: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
+  setSidebarItem: (item: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
   setTheme: (theme: "light" | "dark" | "system") => void;
   clearErrors: () => void;
 
@@ -1827,7 +1827,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // UI Actions
-  setSidebarItem: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => {
+  setSidebarItem: (item: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => {
     set({ sidebarItem: item });
   },
 

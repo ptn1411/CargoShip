@@ -3,6 +3,8 @@
 
 mod manager;
 mod types;
+mod storage;
 
 pub use manager::*;
 pub use types::*;
+pub use storage::*;

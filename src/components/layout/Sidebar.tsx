@@ -1,16 +1,17 @@
-import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText, LayoutDashboard, Code2, Key, Globe, Database } from "lucide-react";
+import { Server, FolderOpen, Terminal, Sun, Moon, Monitor, ScrollText, LayoutDashboard, Code2, Key, Globe, Database, Users } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 interface SidebarProps {
-  activeItem: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
-  onItemSelect: (item: "dashboard" | "servers" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
+  activeItem: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database";
+  onItemSelect: (item: "dashboard" | "servers" | "groups" | "files" | "terminal" | "scripts" | "snippets" | "ssh-keys" | "nginx" | "database") => void;
 }
 
 const navItems = [
   { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
   { id: "servers" as const, label: "Servers", icon: Server },
+  { id: "groups" as const, label: "Groups", icon: Users },
   { id: "files" as const, label: "Files", icon: FolderOpen },
   { id: "terminal" as const, label: "Terminal", icon: Terminal },
   { id: "scripts" as const, label: "Scripts", icon: ScrollText },

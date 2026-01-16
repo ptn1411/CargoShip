@@ -21,7 +21,7 @@ pub mod transfer;
 use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthCheckSummary};
 use cache::CacheManager;
 use credentials::CredentialStore;
-use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, DatabaseType};
+use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, QueryHistoryEntry, SavedQuery, SaveQueryInput};
 use db::init_database;
 use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
 use favorites::{FavoritesManager, Favorite, FavoriteType, ActivityLog, CreateActivityInput};
@@ -2304,7 +2304,8 @@ async fn db_add_connection(
         updated_at: now,
     };
     
-    state.database_manager.add_connection(conn.clone()).await;
+    state.database_manager.add_connection(conn.clone()).await
+        .map_err(|e| e.to_string())?;
     Ok(conn)
 }
 
@@ -2334,8 +2335,8 @@ async fn db_remove_connection(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.database_manager.remove_connection(&id).await;
-    Ok(())
+    state.database_manager.remove_connection(&id).await
+        .map_err(|e| e.to_string())
 }
 
 /// Test database connection
@@ -2354,6 +2355,38 @@ async fn db_test_connection(
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
+    
+    state.database_manager
+        .test_connection(&server, &conn)
+        .map_err(|e| e.to_string())
+}
+
+/// Test database connection using input (before saving)
+#[tauri::command]
+async fn db_test_connection_input(
+    state: tauri::State<'_, AppState>,
+    input: CreateConnectionInput,
+) -> std::result::Result<ConnectionTestResult, String> {
+    let server = state.server_manager.lock().await
+        .get_server(&input.server_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Server not found: {}", input.server_id))?;
+    
+    // Create a temporary connection object for testing
+    let conn = DatabaseConnection {
+        id: String::new(),
+        server_id: input.server_id,
+        name: input.name,
+        db_type: input.db_type,
+        host: input.host,
+        port: input.port,
+        username: input.username,
+        password: input.password,
+        database: input.database,
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
     
     state.database_manager
         .test_connection(&server, &conn)
@@ -2778,6 +2811,80 @@ async fn db_change_user_password(
         .map_err(|e| e.to_string())
 }
 
+/// Get query history
+#[tauri::command]
+async fn db_get_query_history(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+    limit: i32,
+) -> std::result::Result<Vec<QueryHistoryEntry>, String> {
+    state.database_manager
+        .get_query_history(&connection_id, limit)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Clear query history
+#[tauri::command]
+async fn db_clear_query_history(
+    state: tauri::State<'_, AppState>,
+    connection_id: String,
+) -> std::result::Result<(), String> {
+    state.database_manager
+        .clear_query_history(&connection_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Save a query
+#[tauri::command]
+async fn db_save_query(
+    state: tauri::State<'_, AppState>,
+    input: SaveQueryInput,
+) -> std::result::Result<SavedQuery, String> {
+    state.database_manager
+        .save_query(input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get saved queries
+#[tauri::command]
+async fn db_get_saved_queries(
+    state: tauri::State<'_, AppState>,
+    connection_id: Option<String>,
+) -> std::result::Result<Vec<SavedQuery>, String> {
+    state.database_manager
+        .get_saved_queries(connection_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a saved query
+#[tauri::command]
+async fn db_delete_saved_query(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> std::result::Result<(), String> {
+    state.database_manager
+        .delete_saved_query(&id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update a database connection
+#[tauri::command]
+async fn db_update_connection(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: UpdateConnectionInput,
+) -> std::result::Result<(), String> {
+    state.database_manager
+        .update_connection(&id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Create a table
 #[tauri::command]
 async fn db_create_table(
@@ -3018,6 +3125,7 @@ pub fn run() {
                 // Initialize Database manager
                 let database_manager = Arc::new(DatabaseManager::new(
                     ssh_client.clone(),
+                    db_pool.clone(),
                 ));
 
                 // Create app state
@@ -3221,6 +3329,7 @@ pub fn run() {
             db_get_connection,
             db_remove_connection,
             db_test_connection,
+            db_test_connection_input,
             db_list_databases,
             db_list_tables,
             db_get_columns,
@@ -3239,6 +3348,12 @@ pub fn run() {
             db_grant_privileges,
             db_revoke_privileges,
             db_change_user_password,
+            db_get_query_history,
+            db_clear_query_history,
+            db_save_query,
+            db_get_saved_queries,
+            db_delete_saved_query,
+            db_update_connection,
             db_create_table,
             db_drop_table,
             db_truncate_table,
