@@ -1,5 +1,7 @@
 use crate::error::{AppError, Result};
 use ssh_key::{LineEnding, PrivateKey};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -176,22 +178,9 @@ pub fn write_temp_key(loaded_key: &LoadedKey) -> Result<tempfile::NamedTempFile>
 pub fn ensure_key_in_agent(key_path: &Path, _passphrase: Option<&str>) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        // Check if ssh-agent service is running, try to start it
-        let status = Command::new("powershell")
-            .args(["-Command", "Get-Service ssh-agent -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Status"])
-            .output();
-
-        if let Ok(output) = status {
-            let status_str = String::from_utf8_lossy(&output.stdout);
-            if !status_str.trim().eq_ignore_ascii_case("Running") {
-                // Try to start ssh-agent (may fail without admin, that's ok)
-                let _ = Command::new("powershell")
-                    .args([
-                        "-Command",
-                        "Start-Service ssh-agent -ErrorAction SilentlyContinue",
-                    ])
-                    .output();
-            }
+        // Try multiple methods to start ssh-agent
+        if !is_ssh_agent_running() {
+            start_ssh_agent_service();
         }
 
         // Check if key is already in agent
@@ -217,10 +206,23 @@ pub fn ensure_key_in_agent(key_path: &Path, _passphrase: Option<&str>) -> Result
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 if stderr.contains("Could not open a connection to your authentication agent") {
+                    // Last resort: try to start agent one more time with different method
+                    start_ssh_agent_service();
+
+                    // Try adding key again
+                    if let Ok(retry_output) = Command::new("ssh-add").arg(key_path).output() {
+                        if retry_output.status.success() {
+                            return Ok(());
+                        }
+                    }
+
                     Err(AppError::AuthenticationFailed(
-                        "SSH Agent is not running. Please run these commands in PowerShell (Admin):\n\
+                        "SSH Agent could not be started automatically.\n\
+                        Please run these commands in PowerShell (Admin) once:\n\n\
                         Set-Service ssh-agent -StartupType Automatic\n\
-                        Start-Service ssh-agent".to_string()
+                        Start-Service ssh-agent\n\n\
+                        This only needs to be done once per system."
+                            .to_string(),
                     ))
                 } else {
                     // Key might already be added or other non-fatal error
@@ -240,6 +242,59 @@ pub fn ensure_key_in_agent(key_path: &Path, _passphrase: Option<&str>) -> Result
         let _ = key_path;
         Ok(())
     }
+}
+
+/// Check if SSH Agent service is running on Windows
+#[cfg(target_os = "windows")]
+fn is_ssh_agent_running() -> bool {
+    // Method 1: Use sc query (works without admin)
+    if let Ok(output) = Command::new("sc").args(["query", "ssh-agent"]).output() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.contains("RUNNING") {
+            return true;
+        }
+    }
+
+    // Method 2: Check if ssh-add -l works
+    if let Ok(output) = Command::new("ssh-add").arg("-l").output() {
+        // Exit code 0 or 1 means agent is running (1 = no identities)
+        let code = output.status.code().unwrap_or(-1);
+        if code == 0 || code == 1 {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Try to start SSH Agent service using multiple methods
+#[cfg(target_os = "windows")]
+fn start_ssh_agent_service() {
+    // Method 1: Use net start (sometimes works without admin for auto-start services)
+    let _ = Command::new("net")
+        .args(["start", "ssh-agent"])
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output();
+
+    // Method 2: Use sc start
+    let _ = Command::new("sc")
+        .args(["start", "ssh-agent"])
+        .creation_flags(0x08000000)
+        .output();
+
+    // Method 3: PowerShell Start-Service
+    let _ = Command::new("powershell")
+        .args([
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            "Start-Service ssh-agent -ErrorAction SilentlyContinue",
+        ])
+        .creation_flags(0x08000000)
+        .output();
+
+    // Give the service a moment to start
+    std::thread::sleep(std::time::Duration::from_millis(500));
 }
 
 #[cfg(test)]
