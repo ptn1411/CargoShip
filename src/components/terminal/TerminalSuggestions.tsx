@@ -16,7 +16,6 @@ export function TerminalSuggestions({
   selectedIndex,
   onSelect,
   position,
-  containerRef,
 }: TerminalSuggestionsProps) {
   const suggestionRef = useRef<HTMLDivElement>(null);
 
