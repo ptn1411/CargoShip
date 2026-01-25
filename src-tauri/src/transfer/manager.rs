@@ -1,10 +1,9 @@
+use super::models::*;
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::{Server, ServerManager};
-use crate::ssh::{create_ssh_session, authenticate_session};
-use super::models::*;
+use crate::ssh::{authenticate_session, create_ssh_session};
 
-use chrono::Utc;
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -77,7 +76,7 @@ impl TransferManager {
             local_path: local_path.to_string(),
             remote_path: remote_path.to_string(),
         }];
-        
+
         let ids = self.queue_uploads(server_id, transfers).await?;
         Ok(ids.into_iter().next().unwrap_or_default())
     }
@@ -94,7 +93,7 @@ impl TransferManager {
             local_path: local_path.to_string(),
             remote_path: remote_path.to_string(),
         }];
-        
+
         let ids = self.queue_downloads(server_id, transfers).await?;
         Ok(ids.into_iter().next().unwrap_or_default())
     }
@@ -107,17 +106,19 @@ impl TransferManager {
         transfers: Vec<TransferRequest>,
     ) -> Result<Vec<String>> {
         let mut transfer_ids = Vec::new();
-        
+
         for request in transfers {
             // Get file size
-            let metadata = std::fs::metadata(&request.local_path)
-                .map_err(|e| AppError::FileOperationFailed(format!(
-                    "Failed to read local file '{}': {}", request.local_path, e
-                )))?;
-            
+            let metadata = std::fs::metadata(&request.local_path).map_err(|e| {
+                AppError::FileOperationFailed(format!(
+                    "Failed to read local file '{}': {}",
+                    request.local_path, e
+                ))
+            })?;
+
             let total_bytes = metadata.len();
             let id = Uuid::new_v4().to_string();
-            
+
             let job = TransferJob::new(
                 id.clone(),
                 server_id.to_string(),
@@ -126,31 +127,31 @@ impl TransferManager {
                 TransferDirection::Upload,
                 total_bytes,
             );
-            
+
             // Add to transfers map
             {
                 let mut transfers = self.transfers.write().await;
                 transfers.insert(id.clone(), job);
             }
-            
+
             // Add cancel flag
             {
                 let mut flags = self.cancel_flags.write().await;
                 flags.insert(id.clone(), Arc::new(AtomicBool::new(false)));
             }
-            
+
             // Add to queue
             {
                 let mut queue = self.queue.lock().await;
                 queue.push_back(id.clone());
             }
-            
+
             transfer_ids.push(id);
         }
-        
+
         // Start processing if not already running
         self.start_processing().await;
-        
+
         Ok(transfer_ids)
     }
 
@@ -163,12 +164,14 @@ impl TransferManager {
     ) -> Result<Vec<String>> {
         let server = self.get_server(server_id).await?;
         let mut transfer_ids = Vec::new();
-        
+
         for request in transfers {
             // Get remote file size via SSH
-            let total_bytes = self.get_remote_file_size(&server, &request.remote_path).await?;
+            let total_bytes = self
+                .get_remote_file_size(&server, &request.remote_path)
+                .await?;
             let id = Uuid::new_v4().to_string();
-            
+
             let job = TransferJob::new(
                 id.clone(),
                 server_id.to_string(),
@@ -177,31 +180,31 @@ impl TransferManager {
                 TransferDirection::Download,
                 total_bytes,
             );
-            
+
             // Add to transfers map
             {
                 let mut transfers = self.transfers.write().await;
                 transfers.insert(id.clone(), job);
             }
-            
+
             // Add cancel flag
             {
                 let mut flags = self.cancel_flags.write().await;
                 flags.insert(id.clone(), Arc::new(AtomicBool::new(false)));
             }
-            
+
             // Add to queue
             {
                 let mut queue = self.queue.lock().await;
                 queue.push_back(id.clone());
             }
-            
+
             transfer_ids.push(id);
         }
-        
+
         // Start processing if not already running
         self.start_processing().await;
-        
+
         Ok(transfer_ids)
     }
 
@@ -215,7 +218,7 @@ impl TransferManager {
                 flag.store(true, Ordering::SeqCst);
             }
         }
-        
+
         // Update job state
         {
             let mut transfers = self.transfers.write().await;
@@ -223,10 +226,15 @@ impl TransferManager {
                 job.cancel();
             }
         }
-        
+
         // Emit completion event
-        self.emit_completed(transfer_id, false, Some("Transfer cancelled by user".to_string())).await;
-        
+        self.emit_completed(
+            transfer_id,
+            false,
+            Some("Transfer cancelled by user".to_string()),
+        )
+        .await;
+
         Ok(())
     }
 
@@ -234,11 +242,12 @@ impl TransferManager {
     /// Requirements: 3.3
     pub async fn get_transfer_status(&self, transfer_id: &str) -> Result<TransferStatus> {
         let transfers = self.transfers.read().await;
-        transfers.get(transfer_id)
+        transfers
+            .get(transfer_id)
             .map(|job| job.to_status())
-            .ok_or_else(|| AppError::FileOperationFailed(format!(
-                "Transfer not found: {}", transfer_id
-            )))
+            .ok_or_else(|| {
+                AppError::FileOperationFailed(format!("Transfer not found: {}", transfer_id))
+            })
     }
 
     /// Get all transfers
@@ -264,14 +273,14 @@ impl TransferManager {
 
     /// Start the queue processing loop
     async fn start_processing(&self) {
-        if self.is_processing.compare_exchange(
-            false, true, 
-            Ordering::SeqCst, 
-            Ordering::SeqCst
-        ).is_err() {
+        if self
+            .is_processing
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
             return; // Already processing
         }
-        
+
         let transfers = self.transfers.clone();
         let queue = self.queue.clone();
         let credential_store = self.credential_store.clone();
@@ -280,7 +289,7 @@ impl TransferManager {
         let cancel_flags = self.cancel_flags.clone();
         let is_processing = self.is_processing.clone();
         let app_handle = self.app_handle.clone();
-        
+
         tokio::spawn(async move {
             loop {
                 // Get next transfer from queue
@@ -288,59 +297,63 @@ impl TransferManager {
                     let mut q = queue.lock().await;
                     q.pop_front()
                 };
-                
+
                 let Some(transfer_id) = transfer_id else {
                     // Queue is empty, stop processing
                     is_processing.store(false, Ordering::SeqCst);
                     break;
                 };
-                
+
                 // Get job details
                 let job_info = {
                     let t = transfers.read().await;
                     t.get(&transfer_id).cloned()
                 };
-                
+
                 let Some(job) = job_info else {
                     continue;
                 };
-                
+
                 // Check if cancelled
                 let is_cancelled = {
                     let flags = cancel_flags.read().await;
-                    flags.get(&transfer_id)
+                    flags
+                        .get(&transfer_id)
                         .map(|f| f.load(Ordering::SeqCst))
                         .unwrap_or(false)
                 };
-                
+
                 if is_cancelled {
                     continue;
                 }
-                
+
                 // Get server
                 let server = {
                     let manager = server_manager.lock().await;
                     manager.get_server(&job.server_id).await.ok().flatten()
                 };
-                
+
                 let Some(server) = server else {
                     // Mark as failed
                     let mut t = transfers.write().await;
                     if let Some(j) = t.get_mut(&transfer_id) {
                         j.fail("Server not found".to_string());
                     }
-                    
+
                     let handle = app_handle.read().await;
                     if let Some(h) = handle.as_ref() {
-                        let _ = h.emit("transfer-completed", TransferCompletedPayload {
-                            transfer_id: transfer_id.clone(),
-                            success: false,
-                            error: Some("Server not found".to_string()),
-                        });
+                        let _ = h.emit(
+                            "transfer-completed",
+                            TransferCompletedPayload {
+                                transfer_id: transfer_id.clone(),
+                                success: false,
+                                error: Some("Server not found".to_string()),
+                            },
+                        );
                     }
                     continue;
                 };
-                
+
                 // Mark as in progress
                 {
                     let mut t = transfers.write().await;
@@ -348,19 +361,20 @@ impl TransferManager {
                         j.start();
                     }
                 }
-                
+
                 // Get cancel flag
                 let cancel_flag = {
                     let flags = cancel_flags.read().await;
                     flags.get(&transfer_id).cloned()
-                }.unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
-                
+                }
+                .unwrap_or_else(|| Arc::new(AtomicBool::new(false)));
+
                 // Get speed limit
                 let limit = {
                     let l = speed_limit.read().await;
                     *l
                 };
-                
+
                 // Execute transfer
                 let result = match job.direction {
                     TransferDirection::Upload => {
@@ -374,7 +388,8 @@ impl TransferManager {
                             cancel_flag,
                             limit,
                             app_handle.clone(),
-                        ).await
+                        )
+                        .await
                     }
                     TransferDirection::Download => {
                         execute_download(
@@ -387,10 +402,11 @@ impl TransferManager {
                             cancel_flag,
                             limit,
                             app_handle.clone(),
-                        ).await
+                        )
+                        .await
                     }
                 };
-                
+
                 match result {
                     Ok(()) => {
                         // Mark as completed
@@ -400,19 +416,22 @@ impl TransferManager {
                                 j.complete();
                             }
                         }
-                        
+
                         let handle = app_handle.read().await;
                         if let Some(h) = handle.as_ref() {
-                            let _ = h.emit("transfer-completed", TransferCompletedPayload {
-                                transfer_id: transfer_id.clone(),
-                                success: true,
-                                error: None,
-                            });
+                            let _ = h.emit(
+                                "transfer-completed",
+                                TransferCompletedPayload {
+                                    transfer_id: transfer_id.clone(),
+                                    success: true,
+                                    error: None,
+                                },
+                            );
                         }
                     }
                     Err(e) => {
                         let error_msg = e.to_string();
-                        
+
                         // Check if should retry
                         let should_retry = {
                             let t = transfers.read().await;
@@ -420,7 +439,7 @@ impl TransferManager {
                                 .map(|j| j.retry_count < MAX_RETRY_ATTEMPTS)
                                 .unwrap_or(false)
                         };
-                        
+
                         if should_retry && !error_msg.contains("cancelled") {
                             // Retry
                             {
@@ -429,7 +448,7 @@ impl TransferManager {
                                     j.retry();
                                 }
                             }
-                            
+
                             // Re-add to queue
                             let mut q = queue.lock().await;
                             q.push_back(transfer_id.clone());
@@ -441,14 +460,17 @@ impl TransferManager {
                                     j.fail(error_msg.clone());
                                 }
                             }
-                            
+
                             let handle = app_handle.read().await;
                             if let Some(h) = handle.as_ref() {
-                                let _ = h.emit("transfer-completed", TransferCompletedPayload {
-                                    transfer_id: transfer_id.clone(),
-                                    success: false,
-                                    error: Some(error_msg),
-                                });
+                                let _ = h.emit(
+                                    "transfer-completed",
+                                    TransferCompletedPayload {
+                                        transfer_id: transfer_id.clone(),
+                                        success: false,
+                                        error: Some(error_msg),
+                                    },
+                                );
                             }
                         }
                     }
@@ -460,7 +482,8 @@ impl TransferManager {
     /// Get server by ID
     async fn get_server(&self, server_id: &str) -> Result<Server> {
         let manager = self.server_manager.lock().await;
-        manager.get_server(server_id)
+        manager
+            .get_server(server_id)
             .await?
             .ok_or_else(|| AppError::ServerNotFound(server_id.to_string()))
     }
@@ -470,22 +493,27 @@ impl TransferManager {
         let server = server.clone();
         let remote_path = remote_path.to_string();
         let credential_store = self.credential_store.clone();
-        
+
         tokio::task::spawn_blocking(move || {
             let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
             authenticate_session(&session, &server, &credential_store)?;
-            
-            let sftp = session.sftp()
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e)))?;
-            
-            let stat = sftp.stat(Path::new(&remote_path))
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to stat file: {}", e)))?;
-            
+
+            let sftp = session.sftp().map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e))
+            })?;
+
+            let stat = sftp.stat(Path::new(&remote_path)).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to stat file: {}", e))
+            })?;
+
             Ok(stat.size.unwrap_or(0))
-        }).await.map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
+        })
+        .await
+        .map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
     }
 
     /// Emit transfer progress event
+    #[allow(dead_code)]
     async fn emit_progress(
         &self,
         transfer_id: &str,
@@ -498,16 +526,19 @@ impl TransferManager {
         } else {
             None
         };
-        
+
         let handle = self.app_handle.read().await;
         if let Some(h) = handle.as_ref() {
-            let _ = h.emit("transfer-progress", TransferProgressPayload {
-                transfer_id: transfer_id.to_string(),
-                bytes_transferred,
-                total_bytes,
-                speed_bps,
-                eta_seconds,
-            });
+            let _ = h.emit(
+                "transfer-progress",
+                TransferProgressPayload {
+                    transfer_id: transfer_id.to_string(),
+                    bytes_transferred,
+                    total_bytes,
+                    speed_bps,
+                    eta_seconds,
+                },
+            );
         }
     }
 
@@ -515,11 +546,14 @@ impl TransferManager {
     async fn emit_completed(&self, transfer_id: &str, success: bool, error: Option<String>) {
         let handle = self.app_handle.read().await;
         if let Some(h) = handle.as_ref() {
-            let _ = h.emit("transfer-completed", TransferCompletedPayload {
-                transfer_id: transfer_id.to_string(),
-                success,
-                error,
-            });
+            let _ = h.emit(
+                "transfer-completed",
+                TransferCompletedPayload {
+                    transfer_id: transfer_id.to_string(),
+                    success,
+                    error,
+                },
+            );
         }
     }
 }
@@ -542,51 +576,59 @@ async fn execute_upload(
     let credential_store = credential_store.clone();
     let transfers = transfers.clone();
     let transfer_id = transfer_id.to_string();
-    
+
     tokio::task::spawn_blocking(move || {
         // Open local file
-        let mut local_file = std::fs::File::open(&local_path)
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to open local file: {}", e)))?;
-        
-        let metadata = local_file.metadata()
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to get file metadata: {}", e)))?;
+        let mut local_file = std::fs::File::open(&local_path).map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to open local file: {}", e))
+        })?;
+
+        let metadata = local_file.metadata().map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to get file metadata: {}", e))
+        })?;
         let total_bytes = metadata.len();
-        
+
         // Create SSH session
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, &server, &credential_store)?;
-        
-        let sftp = session.sftp()
+
+        let sftp = session
+            .sftp()
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e)))?;
-        
+
         // Create remote file
-        let mut remote_file = sftp.create(Path::new(&remote_path))
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to create remote file: {}", e)))?;
-        
+        let mut remote_file = sftp.create(Path::new(&remote_path)).map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to create remote file: {}", e))
+        })?;
+
         // Transfer in chunks
         let mut buffer = vec![0u8; DEFAULT_CHUNK_SIZE];
         let mut bytes_transferred: u64 = 0;
         let start_time = Instant::now();
         let mut last_progress_update = Instant::now();
-        
+
         loop {
             // Check for cancellation
             if cancel_flag.load(Ordering::SeqCst) {
-                return Err(AppError::FileOperationFailed("Transfer cancelled".to_string()));
+                return Err(AppError::FileOperationFailed(
+                    "Transfer cancelled".to_string(),
+                ));
             }
-            
-            let bytes_read = local_file.read(&mut buffer)
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to read local file: {}", e)))?;
-            
+
+            let bytes_read = local_file.read(&mut buffer).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to read local file: {}", e))
+            })?;
+
             if bytes_read == 0 {
                 break;
             }
-            
-            remote_file.write_all(&buffer[..bytes_read])
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to write remote file: {}", e)))?;
-            
+
+            remote_file.write_all(&buffer[..bytes_read]).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to write remote file: {}", e))
+            })?;
+
             bytes_transferred += bytes_read as u64;
-            
+
             // Apply speed limiting
             if let Some(limit) = speed_limit {
                 let elapsed = start_time.elapsed().as_secs_f64();
@@ -596,12 +638,12 @@ async fn execute_upload(
                     std::thread::sleep(sleep_time);
                 }
             }
-            
+
             // Update progress periodically
             if last_progress_update.elapsed().as_millis() >= PROGRESS_UPDATE_INTERVAL_MS as u128 {
                 let elapsed_secs = start_time.elapsed().as_secs().max(1);
                 let speed_bps = bytes_transferred / elapsed_secs;
-                
+
                 // Update job
                 {
                     if let Ok(mut t) = transfers.try_write() {
@@ -610,32 +652,37 @@ async fn execute_upload(
                         }
                     }
                 }
-                
+
                 // Emit progress event
                 let eta_seconds = if speed_bps > 0 && bytes_transferred < total_bytes {
                     Some((total_bytes - bytes_transferred) / speed_bps)
                 } else {
                     None
                 };
-                
+
                 if let Ok(handle) = app_handle.try_read() {
                     if let Some(h) = handle.as_ref() {
-                        let _ = h.emit("transfer-progress", TransferProgressPayload {
-                            transfer_id: transfer_id.clone(),
-                            bytes_transferred,
-                            total_bytes,
-                            speed_bps,
-                            eta_seconds,
-                        });
+                        let _ = h.emit(
+                            "transfer-progress",
+                            TransferProgressPayload {
+                                transfer_id: transfer_id.clone(),
+                                bytes_transferred,
+                                total_bytes,
+                                speed_bps,
+                                eta_seconds,
+                            },
+                        );
                     }
                 }
-                
+
                 last_progress_update = Instant::now();
             }
         }
-        
+
         Ok(())
-    }).await.map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
+    })
+    .await
+    .map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
 }
 
 /// Execute download operation
@@ -656,60 +703,69 @@ async fn execute_download(
     let credential_store = credential_store.clone();
     let transfers = transfers.clone();
     let transfer_id = transfer_id.to_string();
-    
+
     tokio::task::spawn_blocking(move || {
         // Create SSH session
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, &server, &credential_store)?;
-        
-        let sftp = session.sftp()
+
+        let sftp = session
+            .sftp()
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e)))?;
-        
+
         // Get remote file size
-        let stat = sftp.stat(Path::new(&remote_path))
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to stat remote file: {}", e)))?;
+        let stat = sftp.stat(Path::new(&remote_path)).map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to stat remote file: {}", e))
+        })?;
         let total_bytes = stat.size.unwrap_or(0);
-        
+
         // Open remote file
-        let mut remote_file = sftp.open(Path::new(&remote_path))
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to open remote file: {}", e)))?;
-        
+        let mut remote_file = sftp.open(Path::new(&remote_path)).map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to open remote file: {}", e))
+        })?;
+
         // Create parent directory if needed
         if let Some(parent) = Path::new(&local_path).parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to create directory: {}", e)))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to create directory: {}", e))
+            })?;
         }
-        
+
         // Create local file
-        let mut local_file = std::fs::File::create(&local_path)
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to create local file: {}", e)))?;
-        
+        let mut local_file = std::fs::File::create(&local_path).map_err(|e| {
+            AppError::FileOperationFailed(format!("Failed to create local file: {}", e))
+        })?;
+
         // Transfer in chunks
         let mut buffer = vec![0u8; DEFAULT_CHUNK_SIZE];
         let mut bytes_transferred: u64 = 0;
         let start_time = Instant::now();
         let mut last_progress_update = Instant::now();
-        
+
         loop {
             // Check for cancellation
             if cancel_flag.load(Ordering::SeqCst) {
                 // Clean up partial file
                 let _ = std::fs::remove_file(&local_path);
-                return Err(AppError::FileOperationFailed("Transfer cancelled".to_string()));
+                return Err(AppError::FileOperationFailed(
+                    "Transfer cancelled".to_string(),
+                ));
             }
-            
-            let bytes_read = remote_file.read(&mut buffer)
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to read remote file: {}", e)))?;
-            
+
+            let bytes_read = remote_file.read(&mut buffer).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to read remote file: {}", e))
+            })?;
+
             if bytes_read == 0 {
                 break;
             }
-            
-            local_file.write_all(&buffer[..bytes_read])
-                .map_err(|e| AppError::FileOperationFailed(format!("Failed to write local file: {}", e)))?;
-            
+
+            local_file.write_all(&buffer[..bytes_read]).map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to write local file: {}", e))
+            })?;
+
             bytes_transferred += bytes_read as u64;
-            
+
             // Apply speed limiting
             if let Some(limit) = speed_limit {
                 let elapsed = start_time.elapsed().as_secs_f64();
@@ -719,12 +775,12 @@ async fn execute_download(
                     std::thread::sleep(sleep_time);
                 }
             }
-            
+
             // Update progress periodically
             if last_progress_update.elapsed().as_millis() >= PROGRESS_UPDATE_INTERVAL_MS as u128 {
                 let elapsed_secs = start_time.elapsed().as_secs().max(1);
                 let speed_bps = bytes_transferred / elapsed_secs;
-                
+
                 // Update job
                 {
                     if let Ok(mut t) = transfers.try_write() {
@@ -733,32 +789,37 @@ async fn execute_download(
                         }
                     }
                 }
-                
+
                 // Emit progress event
                 let eta_seconds = if speed_bps > 0 && bytes_transferred < total_bytes {
                     Some((total_bytes - bytes_transferred) / speed_bps)
                 } else {
                     None
                 };
-                
+
                 if let Ok(handle) = app_handle.try_read() {
                     if let Some(h) = handle.as_ref() {
-                        let _ = h.emit("transfer-progress", TransferProgressPayload {
-                            transfer_id: transfer_id.clone(),
-                            bytes_transferred,
-                            total_bytes,
-                            speed_bps,
-                            eta_seconds,
-                        });
+                        let _ = h.emit(
+                            "transfer-progress",
+                            TransferProgressPayload {
+                                transfer_id: transfer_id.clone(),
+                                bytes_transferred,
+                                total_bytes,
+                                speed_bps,
+                                eta_seconds,
+                            },
+                        );
                     }
                 }
-                
+
                 last_progress_update = Instant::now();
             }
         }
-        
+
         Ok(())
-    }).await.map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
+    })
+    .await
+    .map_err(|e| AppError::FileOperationFailed(format!("Task failed: {}", e)))?
 }
 
 #[cfg(test)]

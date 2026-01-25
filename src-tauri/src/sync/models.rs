@@ -7,10 +7,7 @@ pub enum ConflictStatus {
     /// No conflict - local cache is up to date with remote
     NoConflict,
     /// Remote file has been modified since local cache was created
-    RemoteModified {
-        remote_time: i64,
-        local_time: i64,
-    },
+    RemoteModified { remote_time: i64, local_time: i64 },
     /// File exists only in local cache (not on remote)
     LocalOnly,
     /// File exists only on remote (not in local cache)

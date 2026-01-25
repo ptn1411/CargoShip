@@ -92,7 +92,6 @@ impl std::str::FromStr for AlertCondition {
     }
 }
 
-
 /// Alert configuration
 /// Requirements: 4.3, 4.6
 #[derive(Debug, Clone, Serialize, Deserialize)]

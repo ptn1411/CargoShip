@@ -37,18 +37,22 @@ impl ScriptManager {
         // Validate before saving
         let validation = self.validate_script(&script);
         if !validation.valid {
-            let error_msgs: Vec<String> = validation.errors.iter()
+            let error_msgs: Vec<String> = validation
+                .errors
+                .iter()
                 .map(|e| format!("{}: {}", e.field, e.message))
                 .collect();
             return Err(AppError::ValidationError(error_msgs.join("; ")));
         }
 
-        let variables_json = serde_json::to_string(&script.variables)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize variables: {}", e)))?;
+        let variables_json = serde_json::to_string(&script.variables).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize variables: {}", e))
+        })?;
         let steps_json = serde_json::to_string(&script.steps)
             .map_err(|e| AppError::DatabaseError(format!("Failed to serialize steps: {}", e)))?;
-        let rollback_steps_json = serde_json::to_string(&script.rollback_steps)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize rollback_steps: {}", e)))?;
+        let rollback_steps_json = serde_json::to_string(&script.rollback_steps).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize rollback_steps: {}", e))
+        })?;
         let tags_json = serde_json::to_string(&script.tags)
             .map_err(|e| AppError::DatabaseError(format!("Failed to serialize tags: {}", e)))?;
 
@@ -111,8 +115,14 @@ impl ScriptManager {
 
     /// Update an existing deployment script
     /// Requirements: 1.3
-    pub async fn update_script(&self, id: &str, input: UpdateScriptInput) -> Result<DeploymentScript> {
-        let existing = self.get_script(id).await?
+    pub async fn update_script(
+        &self,
+        id: &str,
+        input: UpdateScriptInput,
+    ) -> Result<DeploymentScript> {
+        let existing = self
+            .get_script(id)
+            .await?
             .ok_or_else(|| AppError::ValidationError(format!("Script not found: {}", id)))?;
 
         let updated = DeploymentScript {
@@ -131,18 +141,22 @@ impl ScriptManager {
         // Validate before saving
         let validation = self.validate_script(&updated);
         if !validation.valid {
-            let error_msgs: Vec<String> = validation.errors.iter()
+            let error_msgs: Vec<String> = validation
+                .errors
+                .iter()
                 .map(|e| format!("{}: {}", e.field, e.message))
                 .collect();
             return Err(AppError::ValidationError(error_msgs.join("; ")));
         }
 
-        let variables_json = serde_json::to_string(&updated.variables)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize variables: {}", e)))?;
+        let variables_json = serde_json::to_string(&updated.variables).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize variables: {}", e))
+        })?;
         let steps_json = serde_json::to_string(&updated.steps)
             .map_err(|e| AppError::DatabaseError(format!("Failed to serialize steps: {}", e)))?;
-        let rollback_steps_json = serde_json::to_string(&updated.rollback_steps)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize rollback_steps: {}", e)))?;
+        let rollback_steps_json = serde_json::to_string(&updated.rollback_steps).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize rollback_steps: {}", e))
+        })?;
         let tags_json = serde_json::to_string(&updated.tags)
             .map_err(|e| AppError::DatabaseError(format!("Failed to serialize tags: {}", e)))?;
 
@@ -194,7 +208,10 @@ impl ScriptManager {
             .map_err(|e| AppError::DatabaseError(format!("Failed to delete script: {}", e)))?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::ValidationError(format!("Script not found: {}", id)));
+            return Err(AppError::ValidationError(format!(
+                "Script not found: {}",
+                id
+            )));
         }
 
         Ok(())
@@ -203,7 +220,9 @@ impl ScriptManager {
     /// Duplicate a deployment script
     /// Requirements: 1.5
     pub async fn duplicate_script(&self, id: &str) -> Result<DeploymentScript> {
-        let existing = self.get_script(id).await?
+        let existing = self
+            .get_script(id)
+            .await?
             .ok_or_else(|| AppError::ValidationError(format!("Script not found: {}", id)))?;
 
         let input = CreateScriptInput {
@@ -232,8 +251,9 @@ impl ScriptManager {
             tags: script.tags.clone(),
         };
 
-        serde_yaml::to_string(&exportable)
-            .map_err(|e| AppError::ValidationError(format!("Failed to export script to YAML: {}", e)))
+        serde_yaml::to_string(&exportable).map_err(|e| {
+            AppError::ValidationError(format!("Failed to export script to YAML: {}", e))
+        })
     }
 
     /// Import a script from YAML format
@@ -314,18 +334,37 @@ impl ScriptManager {
 
         // Validate steps
         if script.steps.is_empty() {
-            errors.push(ValidationError::new("steps", "Script must have at least one step"));
+            errors.push(ValidationError::new(
+                "steps",
+                "Script must have at least one step",
+            ));
         }
 
         let mut step_ids = HashSet::new();
         for (i, step) in script.steps.iter().enumerate() {
-            self.validate_step(step, i, "steps", &mut step_ids, &var_names, &mut errors, &mut warnings);
+            self.validate_step(
+                step,
+                i,
+                "steps",
+                &mut step_ids,
+                &var_names,
+                &mut errors,
+                &mut warnings,
+            );
         }
 
         // Validate rollback steps
         let mut rollback_step_ids = HashSet::new();
         for (i, step) in script.rollback_steps.iter().enumerate() {
-            self.validate_step(step, i, "rollback_steps", &mut rollback_step_ids, &var_names, &mut errors, &mut warnings);
+            self.validate_step(
+                step,
+                i,
+                "rollback_steps",
+                &mut rollback_step_ids,
+                &var_names,
+                &mut errors,
+                &mut warnings,
+            );
         }
 
         ValidationResult {
@@ -404,7 +443,7 @@ impl ScriptManager {
 
 /// Helper function to check if a variable name is valid
 fn is_valid_variable_name(name: &str) -> bool {
-    !name.is_empty() 
+    !name.is_empty()
         && name.chars().all(|c| c.is_alphanumeric() || c == '_')
         && !name.chars().next().map(|c| c.is_numeric()).unwrap_or(true)
 }
@@ -418,7 +457,7 @@ fn is_dynamic_variable(name: &str) -> bool {
 fn extract_variables(template: &str) -> Vec<String> {
     let mut vars = Vec::new();
     let mut chars = template.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == '{' && chars.peek() == Some(&'{') {
             chars.next(); // consume second '{'
@@ -439,7 +478,7 @@ fn extract_variables(template: &str) -> Vec<String> {
             }
         }
     }
-    
+
     vars
 }
 
@@ -473,17 +512,19 @@ impl ScriptRow {
     fn into_script(self) -> Result<DeploymentScript> {
         let variables: Vec<Variable> = serde_json::from_str(&self.variables)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse variables: {}", e)))?;
-        
+
         let steps: Vec<Step> = serde_json::from_str(&self.steps)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse steps: {}", e)))?;
-        
-        let rollback_steps: Vec<Step> = self.rollback_steps
+
+        let rollback_steps: Vec<Step> = self
+            .rollback_steps
             .map(|s| serde_json::from_str(&s))
             .transpose()
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse rollback_steps: {}", e)))?
             .unwrap_or_default();
-        
-        let tags: Vec<String> = self.tags
+
+        let tags: Vec<String> = self
+            .tags
             .map(|s| serde_json::from_str(&s))
             .transpose()
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse tags: {}", e)))?
@@ -492,7 +533,7 @@ impl ScriptRow {
         let created_at = chrono::DateTime::parse_from_rfc3339(&self.created_at)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse created_at: {}", e)))?
             .with_timezone(&Utc);
-        
+
         let updated_at = chrono::DateTime::parse_from_rfc3339(&self.updated_at)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse updated_at: {}", e)))?
             .with_timezone(&Utc);

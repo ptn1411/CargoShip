@@ -48,7 +48,7 @@ impl BatchSummary {
         let total = results.len();
         let success_count = results.iter().filter(|r| r.success).count();
         let failure_count = total - success_count;
-        
+
         Self {
             total,
             success_count,
@@ -93,7 +93,7 @@ impl HealthCheckSummary {
         let total = results.len();
         let online_count = results.iter().filter(|r| r.connected).count();
         let offline_count = total - online_count;
-        
+
         Self {
             total,
             online_count,

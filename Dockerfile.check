@@ -1,0 +1,51 @@
+# Dockerfile for pre-push checks
+# Use this to run checks in a consistent environment
+
+FROM rust:1.83-bookworm
+
+# Install system dependencies for Tauri
+RUN apt-get update && apt-get install -y \
+    libwebkit2gtk-4.1-dev \
+    libappindicator3-dev \
+    librsvg2-dev \
+    patchelf \
+    libssl-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Rust components
+RUN rustup component add clippy rustfmt
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY package*.json ./
+
+# Install npm dependencies
+RUN npm ci
+
+# Copy the rest of the project
+COPY . .
+
+# Default command: run all checks
+CMD ["sh", "-c", "\
+    echo '🔍 Running pre-push checks in Docker...' && \
+    echo '' && \
+    echo '📦 Frontend checks...' && \
+    npx tsc --noEmit && \
+    npm run build && \
+    echo '' && \
+    echo '🦀 Backend checks...' && \
+    cd src-tauri && \
+    cargo check --all-features && \
+    cargo clippy --all-features -- -D warnings && \
+    cargo fmt --check && \
+    echo '' && \
+    echo '✅ All checks passed!' \
+"]

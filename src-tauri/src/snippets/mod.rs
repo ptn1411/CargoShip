@@ -1,5 +1,5 @@
-mod models;
 mod manager;
+mod models;
 
-pub use models::*;
 pub use manager::*;
+pub use models::*;

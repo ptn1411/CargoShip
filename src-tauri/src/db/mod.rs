@@ -95,7 +95,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(format!("Failed to create deployment_scripts table: {}", e)))?;
+    .map_err(|e| {
+        AppError::DatabaseError(format!("Failed to create deployment_scripts table: {}", e))
+    })?;
 
     // Create deployments table
     sqlx::query(
@@ -143,7 +145,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(format!("Failed to create deployment_logs table: {}", e)))?;
+    .map_err(|e| {
+        AppError::DatabaseError(format!("Failed to create deployment_logs table: {}", e))
+    })?;
 
     // Migration: Add stderr column if it doesn't exist
     let _ = sqlx::query("ALTER TABLE deployment_logs ADD COLUMN stderr TEXT DEFAULT ''")
@@ -154,17 +158,26 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_deployments_script ON deployments(script_id)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create deployments script index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create deployments script index: {}", e))
+        })?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create deployments status index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create deployments status index: {}", e))
+        })?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_deployments_started ON deployments(started_at)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create deployments started_at index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!(
+                "Failed to create deployments started_at index: {}",
+                e
+            ))
+        })?;
 
     // Create index for deployment_logs table
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_deployment_logs_deployment ON deployment_logs(deployment_id)")
@@ -209,12 +222,19 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create group_members group index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create group_members group index: {}", e))
+        })?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_group_members_server ON group_members(server_id)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create group_members server index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!(
+                "Failed to create group_members server index: {}",
+                e
+            ))
+        })?;
 
     // Phase 4: Create snippets table
     sqlx::query(
@@ -239,7 +259,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_snippets_category ON snippets(category)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create snippets category index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create snippets category index: {}", e))
+        })?;
 
     // Phase 4: Create server_metrics table for monitoring
     sqlx::query(
@@ -261,18 +283,31 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics table: {}", e)))?;
+    .map_err(|e| {
+        AppError::DatabaseError(format!("Failed to create server_metrics table: {}", e))
+    })?;
 
     // Create indexes for server_metrics
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_server_metrics_server ON server_metrics(server_id)")
-        .execute(pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics server index: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_server_metrics_server ON server_metrics(server_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| {
+        AppError::DatabaseError(format!(
+            "Failed to create server_metrics server index: {}",
+            e
+        ))
+    })?;
 
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_server_metrics_time ON server_metrics(collected_at)")
-        .execute(pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create server_metrics time index: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_server_metrics_time ON server_metrics(collected_at)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| {
+        AppError::DatabaseError(format!("Failed to create server_metrics time index: {}", e))
+    })?;
 
     // Phase 4: Create alerts table
     sqlx::query(
@@ -297,7 +332,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_alerts_server ON alerts(server_id)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create alerts server index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create alerts server index: {}", e))
+        })?;
 
     // Phase 4: Create favorites table
     sqlx::query(
@@ -319,7 +356,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_favorites_type ON favorites(item_type)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create favorites type index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create favorites type index: {}", e))
+        })?;
 
     // Phase 4: Create activity_log table
     sqlx::query(
@@ -342,7 +381,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_activity_log_time ON activity_log(created_at)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create activity_log time index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create activity_log time index: {}", e))
+        })?;
 
     // Create ssh_keys table for storing generated SSH keys (encrypted in keychain)
     sqlx::query(
@@ -366,7 +407,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_ssh_keys_name ON ssh_keys(name)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e))
+        })?;
 
     // Create database_connections table (passwords stored in keychain, not here)
     sqlx::query(
@@ -388,18 +431,35 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections table: {}", e)))?;
+    .map_err(|e| {
+        AppError::DatabaseError(format!(
+            "Failed to create database_connections table: {}",
+            e
+        ))
+    })?;
 
     // Create indexes for database_connections
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_db_connections_server ON database_connections(server_id)")
-        .execute(pool)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections server index: {}", e)))?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_db_connections_server ON database_connections(server_id)",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| {
+        AppError::DatabaseError(format!(
+            "Failed to create database_connections server index: {}",
+            e
+        ))
+    })?;
 
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_db_connections_name ON database_connections(name)")
         .execute(pool)
         .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to create database_connections name index: {}", e)))?;
+        .map_err(|e| {
+            AppError::DatabaseError(format!(
+                "Failed to create database_connections name index: {}",
+                e
+            ))
+        })?;
 
     // Create query_history table
     sqlx::query(
@@ -470,7 +530,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await
-    .map_err(|e| AppError::DatabaseError(format!("Failed to create backup_history table: {}", e)))?;
+    .map_err(|e| {
+        AppError::DatabaseError(format!("Failed to create backup_history table: {}", e))
+    })?;
 
     // Create index for backup_history
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_backup_history_connection ON backup_history(connection_id, created_at DESC)")

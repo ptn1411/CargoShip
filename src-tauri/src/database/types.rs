@@ -47,7 +47,7 @@ impl From<DbConnectionRow> for DatabaseConnection {
             "postgresql" | "postgres" => DatabaseType::PostgreSQL,
             _ => DatabaseType::MySQL,
         };
-        
+
         DatabaseConnection {
             id: row.id,
             server_id: row.server_id,
@@ -380,7 +380,6 @@ pub struct SaveQueryInput {
     pub database: Option<String>,
 }
 
-
 // ==================== Backup Types ====================
 
 /// Backup options
@@ -388,11 +387,11 @@ pub struct SaveQueryInput {
 pub struct BackupOptions {
     pub connection_id: String,
     pub database: String,
-    pub tables: Option<Vec<String>>,  // None = all tables
+    pub tables: Option<Vec<String>>, // None = all tables
     pub include_structure: bool,
     pub include_data: bool,
     pub compress: bool,
-    pub remote_path: Option<String>,  // If None, returns content directly
+    pub remote_path: Option<String>, // If None, returns content directly
 }
 
 /// Backup result
@@ -401,7 +400,7 @@ pub struct BackupResult {
     pub success: bool,
     pub file_path: Option<String>,
     pub file_size: Option<i64>,
-    pub content: Option<String>,  // Only if remote_path is None and not compressed
+    pub content: Option<String>, // Only if remote_path is None and not compressed
     pub duration_ms: u64,
     pub error: Option<String>,
 }
@@ -412,7 +411,7 @@ pub struct RestoreOptions {
     pub connection_id: String,
     pub database: String,
     pub source: RestoreSource,
-    pub drop_existing: bool,  // Drop existing tables before restore
+    pub drop_existing: bool, // Drop existing tables before restore
 }
 
 /// Source for restore operation
@@ -446,7 +445,7 @@ pub struct BackupHistoryEntry {
     pub include_structure: bool,
     pub include_data: bool,
     pub compressed: bool,
-    pub status: String,  // "success" | "failed"
+    pub status: String, // "success" | "failed"
     pub error: Option<String>,
     pub created_at: String,
 }
@@ -470,9 +469,10 @@ pub struct BackupHistoryRow {
 
 impl From<BackupHistoryRow> for BackupHistoryEntry {
     fn from(row: BackupHistoryRow) -> Self {
-        let tables: Option<Vec<String>> = row.tables_json
+        let tables: Option<Vec<String>> = row
+            .tables_json
             .and_then(|json| serde_json::from_str(&json).ok());
-        
+
         BackupHistoryEntry {
             id: row.id,
             connection_id: row.connection_id,
@@ -489,7 +489,6 @@ impl From<BackupHistoryRow> for BackupHistoryEntry {
         }
     }
 }
-
 
 /// Backup file info (for listing backup files on server)
 #[derive(Debug, Clone, Serialize, Deserialize)]

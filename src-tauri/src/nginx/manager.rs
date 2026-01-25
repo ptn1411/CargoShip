@@ -1,8 +1,8 @@
 use super::models::*;
 use super::templates::{generate_config, get_config_snippets};
+use crate::error::AppError;
 use crate::server::{Server, ServerManager};
 use crate::ssh::SshClient;
-use crate::error::AppError;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -13,10 +13,7 @@ pub struct NginxManager {
 }
 
 impl NginxManager {
-    pub fn new(
-        ssh_client: Arc<SshClient>,
-        server_manager: Arc<Mutex<ServerManager>>,
-    ) -> Self {
+    pub fn new(ssh_client: Arc<SshClient>, server_manager: Arc<Mutex<ServerManager>>) -> Self {
         Self {
             ssh_client,
             server_manager,
@@ -29,19 +26,27 @@ impl NginxManager {
 
         // Check if nginx is running
         let running_cmd = "systemctl is-active nginx 2>/dev/null || service nginx status 2>/dev/null | grep -q running && echo active";
-        let running_output = self.ssh_client.execute_command(&server, running_cmd, Some(10))?;
+        let running_output = self
+            .ssh_client
+            .execute_command(&server, running_cmd, Some(10))?;
         let running = running_output.stdout.trim() == "active";
 
         // Get nginx version
         let version_cmd = "nginx -v 2>&1 | head -1";
-        let version_output = self.ssh_client.execute_command(&server, version_cmd, Some(10))?;
-        let version = version_output.stderr.trim()
+        let version_output = self
+            .ssh_client
+            .execute_command(&server, version_cmd, Some(10))?;
+        let version = version_output
+            .stderr
+            .trim()
             .replace("nginx version: nginx/", "")
             .to_string();
 
         // Test config
         let test_cmd = "nginx -t 2>&1";
-        let test_output = self.ssh_client.execute_command(&server, test_cmd, Some(10))?;
+        let test_output = self
+            .ssh_client
+            .execute_command(&server, test_cmd, Some(10))?;
         let config_test = test_output.exit_code == 0;
         let config_error = if !config_test {
             Some(test_output.stderr.clone())
@@ -51,11 +56,15 @@ impl NginxManager {
 
         // Count sites
         let enabled_cmd = "ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | wc -l";
-        let enabled_output = self.ssh_client.execute_command(&server, enabled_cmd, Some(10))?;
+        let enabled_output = self
+            .ssh_client
+            .execute_command(&server, enabled_cmd, Some(10))?;
         let sites_enabled: u32 = enabled_output.stdout.trim().parse().unwrap_or(0);
 
         let available_cmd = "ls -1 /etc/nginx/sites-available/ 2>/dev/null | wc -l";
-        let available_output = self.ssh_client.execute_command(&server, available_cmd, Some(10))?;
+        let available_output = self
+            .ssh_client
+            .execute_command(&server, available_cmd, Some(10))?;
         let sites_available: u32 = available_output.stdout.trim().parse().unwrap_or(0);
 
         Ok(NginxStatus {
@@ -92,7 +101,9 @@ for site in $(ls -1 /etc/nginx/sites-available/ 2>/dev/null | grep -v default); 
     echo "===SITE_END==="
 done
 "#;
-        let output = self.ssh_client.execute_command(&server, batch_cmd, Some(30))?;
+        let output = self
+            .ssh_client
+            .execute_command(&server, batch_cmd, Some(30))?;
 
         // Parse the batched output
         let mut current_site: Option<String> = None;
@@ -102,7 +113,7 @@ done
 
         for line in output.stdout.lines() {
             let line_trimmed = line.trim();
-            
+
             if line_trimmed == "===SITE_START===" {
                 current_site = None;
                 current_enabled = false;
@@ -111,7 +122,13 @@ done
             } else if line_trimmed == "===SITE_END===" {
                 if let Some(ref site_name) = current_site {
                     let config_path = format!("/etc/nginx/sites-available/{}", site_name);
-                    let domain_info = self.parse_nginx_config(&current_config, server_id, site_name, &config_path, current_enabled);
+                    let domain_info = self.parse_nginx_config(
+                        &current_config,
+                        server_id,
+                        site_name,
+                        &config_path,
+                        current_enabled,
+                    );
                     domains.push(domain_info);
                 }
             } else if line_trimmed.starts_with("SITE_NAME:") {
@@ -139,7 +156,9 @@ done
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp();
 
-        let root_path = input.root_path.unwrap_or_else(|| format!("/var/www/{}", input.domain));
+        let root_path = input
+            .root_path
+            .unwrap_or_else(|| format!("/var/www/{}", input.domain));
         let aliases = input.aliases.unwrap_or_default();
         let config_path = format!("/etc/nginx/sites-available/{}", input.domain);
 
@@ -160,16 +179,29 @@ done
         };
 
         // Create root directory
-        let mkdir_cmd = format!("sudo mkdir -p {} && sudo chown -R www-data:www-data {}", root_path, root_path);
-        self.ssh_client.execute_command(&server, &mkdir_cmd, Some(30))?;
+        let mkdir_cmd = format!(
+            "sudo mkdir -p {} && sudo chown -R www-data:www-data {}",
+            root_path, root_path
+        );
+        self.ssh_client
+            .execute_command(&server, &mkdir_cmd, Some(30))?;
 
         // Write config file
-        let write_cmd = format!("echo '{}' | sudo tee {}", config.replace("'", "'\\''"), config_path);
-        self.ssh_client.execute_command(&server, &write_cmd, Some(30))?;
+        let write_cmd = format!(
+            "echo '{}' | sudo tee {}",
+            config.replace("'", "'\\''"),
+            config_path
+        );
+        self.ssh_client
+            .execute_command(&server, &write_cmd, Some(30))?;
 
         // Enable site
-        let enable_cmd = format!("sudo ln -sf {} /etc/nginx/sites-enabled/{}", config_path, input.domain);
-        self.ssh_client.execute_command(&server, &enable_cmd, Some(10))?;
+        let enable_cmd = format!(
+            "sudo ln -sf {} /etc/nginx/sites-enabled/{}",
+            config_path, input.domain
+        );
+        self.ssh_client
+            .execute_command(&server, &enable_cmd, Some(10))?;
 
         // Test and reload nginx
         self.reload_nginx(&server).await?;
@@ -196,16 +228,29 @@ done
     }
 
     /// Update domain configuration
-    pub async fn update_domain(&self, server_id: &str, domain_name: &str, input: UpdateDomainInput) -> Result<NginxDomain, AppError> {
+    pub async fn update_domain(
+        &self,
+        server_id: &str,
+        domain_name: &str,
+        input: UpdateDomainInput,
+    ) -> Result<NginxDomain, AppError> {
         let server = self.get_server(server_id).await?;
         let config_path = format!("/etc/nginx/sites-available/{}", domain_name);
 
         // Read current config
         let read_cmd = format!("cat {}", config_path);
-        let current_config = self.ssh_client.execute_command(&server, &read_cmd, Some(10))?;
-        
+        let current_config = self
+            .ssh_client
+            .execute_command(&server, &read_cmd, Some(10))?;
+
         // Parse current domain info
-        let mut domain = self.parse_nginx_config(&current_config.stdout, server_id, domain_name, &config_path, true);
+        let mut domain = self.parse_nginx_config(
+            &current_config.stdout,
+            server_id,
+            domain_name,
+            &config_path,
+            true,
+        );
 
         // Apply updates
         if let Some(new_domain) = input.domain {
@@ -244,8 +289,13 @@ done
         };
 
         // Write new config
-        let write_cmd = format!("echo '{}' | sudo tee {}", new_config.replace("'", "'\\''"), config_path);
-        self.ssh_client.execute_command(&server, &write_cmd, Some(30))?;
+        let write_cmd = format!(
+            "echo '{}' | sudo tee {}",
+            new_config.replace("'", "'\\''"),
+            config_path
+        );
+        self.ssh_client
+            .execute_command(&server, &write_cmd, Some(30))?;
 
         // Reload nginx
         self.reload_nginx(&server).await?;
@@ -260,11 +310,13 @@ done
 
         // Disable site
         let disable_cmd = format!("sudo rm -f /etc/nginx/sites-enabled/{}", domain_name);
-        self.ssh_client.execute_command(&server, &disable_cmd, Some(10))?;
+        self.ssh_client
+            .execute_command(&server, &disable_cmd, Some(10))?;
 
         // Remove config
         let remove_cmd = format!("sudo rm -f /etc/nginx/sites-available/{}", domain_name);
-        self.ssh_client.execute_command(&server, &remove_cmd, Some(10))?;
+        self.ssh_client
+            .execute_command(&server, &remove_cmd, Some(10))?;
 
         // Reload nginx
         self.reload_nginx(&server).await?;
@@ -273,7 +325,12 @@ done
     }
 
     /// Enable/disable a domain
-    pub async fn toggle_domain(&self, server_id: &str, domain_name: &str, enable: bool) -> Result<(), AppError> {
+    pub async fn toggle_domain(
+        &self,
+        server_id: &str,
+        domain_name: &str,
+        enable: bool,
+    ) -> Result<(), AppError> {
         let server = self.get_server(server_id).await?;
 
         if enable {
@@ -292,35 +349,57 @@ done
     }
 
     /// Get domain config content
-    pub async fn get_domain_config(&self, server_id: &str, domain_name: &str) -> Result<String, AppError> {
+    pub async fn get_domain_config(
+        &self,
+        server_id: &str,
+        domain_name: &str,
+    ) -> Result<String, AppError> {
         let server = self.get_server(server_id).await?;
         let config_path = format!("/etc/nginx/sites-available/{}", domain_name);
-        
+
         let cmd = format!("cat {}", config_path);
         let output = self.ssh_client.execute_command(&server, &cmd, Some(10))?;
-        
+
         if output.exit_code != 0 {
-            return Err(AppError::NotFound(format!("Config not found: {}", domain_name)));
+            return Err(AppError::NotFound(format!(
+                "Config not found: {}",
+                domain_name
+            )));
         }
 
         Ok(output.stdout)
     }
 
     /// Save domain config content
-    pub async fn save_domain_config(&self, server_id: &str, domain_name: &str, content: &str) -> Result<(), AppError> {
+    pub async fn save_domain_config(
+        &self,
+        server_id: &str,
+        domain_name: &str,
+        content: &str,
+    ) -> Result<(), AppError> {
         let server = self.get_server(server_id).await?;
         let config_path = format!("/etc/nginx/sites-available/{}", domain_name);
 
         // Write config
-        let write_cmd = format!("echo '{}' | sudo tee {}", content.replace("'", "'\\''"), config_path);
-        self.ssh_client.execute_command(&server, &write_cmd, Some(30))?;
+        let write_cmd = format!(
+            "echo '{}' | sudo tee {}",
+            content.replace("'", "'\\''"),
+            config_path
+        );
+        self.ssh_client
+            .execute_command(&server, &write_cmd, Some(30))?;
 
         // Test config
         let test_cmd = "sudo nginx -t";
-        let test_output = self.ssh_client.execute_command(&server, test_cmd, Some(10))?;
-        
+        let test_output = self
+            .ssh_client
+            .execute_command(&server, test_cmd, Some(10))?;
+
         if test_output.exit_code != 0 {
-            return Err(AppError::ValidationError(format!("Invalid nginx config: {}", test_output.stderr)));
+            return Err(AppError::ValidationError(format!(
+                "Invalid nginx config: {}",
+                test_output.stderr
+            )));
         }
 
         // Reload nginx
@@ -330,13 +409,20 @@ done
     }
 
     /// Issue SSL certificate using Certbot
-    pub async fn issue_ssl(&self, server_id: &str, domain_name: &str, email: &str) -> Result<SslResult, AppError> {
+    pub async fn issue_ssl(
+        &self,
+        server_id: &str,
+        domain_name: &str,
+        email: &str,
+    ) -> Result<SslResult, AppError> {
         let server = self.get_server(server_id).await?;
 
         // Check if certbot is installed
         let check_cmd = "which certbot || which /usr/bin/certbot";
-        let check_output = self.ssh_client.execute_command(&server, check_cmd, Some(10))?;
-        
+        let check_output = self
+            .ssh_client
+            .execute_command(&server, check_cmd, Some(10))?;
+
         if check_output.exit_code != 0 {
             return Ok(SslResult {
                 success: false,
@@ -352,7 +438,9 @@ done
             "sudo certbot --nginx -d {} --non-interactive --agree-tos --email {} --redirect",
             domain_name, email
         );
-        let certbot_output = self.ssh_client.execute_command(&server, &certbot_cmd, Some(120))?;
+        let certbot_output = self
+            .ssh_client
+            .execute_command(&server, &certbot_cmd, Some(120))?;
 
         if certbot_output.exit_code != 0 {
             return Ok(SslResult {
@@ -384,14 +472,20 @@ done
         let output = self.ssh_client.execute_command(&server, cmd, Some(120))?;
 
         if output.exit_code != 0 {
-            return Err(AppError::CommandFailed(format!("SSL renewal failed: {}", output.stderr)));
+            return Err(AppError::CommandFailed(format!(
+                "SSL renewal failed: {}",
+                output.stderr
+            )));
         }
 
         Ok(output.stdout)
     }
 
     /// List SSL certificates
-    pub async fn list_ssl_certificates(&self, server_id: &str) -> Result<Vec<SslCertificate>, AppError> {
+    pub async fn list_ssl_certificates(
+        &self,
+        server_id: &str,
+    ) -> Result<Vec<SslCertificate>, AppError> {
         let server = self.get_server(server_id).await?;
         let mut certificates = Vec::new();
 
@@ -401,10 +495,10 @@ done
 
         // Parse certbot output
         let mut current_cert: Option<SslCertificate> = None;
-        
+
         for line in output.stdout.lines() {
             let line = line.trim();
-            
+
             if line.starts_with("Certificate Name:") {
                 if let Some(cert) = current_cert.take() {
                     certificates.push(cert);
@@ -450,18 +544,28 @@ done
     async fn reload_nginx(&self, server: &Server) -> Result<(), AppError> {
         // Test config first
         let test_cmd = "sudo nginx -t";
-        let test_output = self.ssh_client.execute_command(server, test_cmd, Some(10))?;
-        
+        let test_output = self
+            .ssh_client
+            .execute_command(server, test_cmd, Some(10))?;
+
         if test_output.exit_code != 0 {
-            return Err(AppError::ValidationError(format!("Nginx config test failed: {}", test_output.stderr)));
+            return Err(AppError::ValidationError(format!(
+                "Nginx config test failed: {}",
+                test_output.stderr
+            )));
         }
 
         // Reload
         let reload_cmd = "sudo systemctl reload nginx || sudo service nginx reload";
-        let reload_output = self.ssh_client.execute_command(server, reload_cmd, Some(10))?;
-        
+        let reload_output = self
+            .ssh_client
+            .execute_command(server, reload_cmd, Some(10))?;
+
         if reload_output.exit_code != 0 {
-            return Err(AppError::CommandFailed(format!("Failed to reload nginx: {}", reload_output.stderr)));
+            return Err(AppError::CommandFailed(format!(
+                "Failed to reload nginx: {}",
+                reload_output.stderr
+            )));
         }
 
         Ok(())
@@ -470,12 +574,15 @@ done
     /// Restart nginx
     pub async fn restart_nginx(&self, server_id: &str) -> Result<(), AppError> {
         let server = self.get_server(server_id).await?;
-        
+
         let cmd = "sudo systemctl restart nginx || sudo service nginx restart";
         let output = self.ssh_client.execute_command(&server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
-            return Err(AppError::CommandFailed(format!("Failed to restart nginx: {}", output.stderr)));
+            return Err(AppError::CommandFailed(format!(
+                "Failed to restart nginx: {}",
+                output.stderr
+            )));
         }
 
         Ok(())
@@ -484,12 +591,15 @@ done
     /// Start nginx
     pub async fn start_nginx(&self, server_id: &str) -> Result<(), AppError> {
         let server = self.get_server(server_id).await?;
-        
+
         let cmd = "sudo systemctl start nginx || sudo service nginx start";
         let output = self.ssh_client.execute_command(&server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
-            return Err(AppError::CommandFailed(format!("Failed to start nginx: {}", output.stderr)));
+            return Err(AppError::CommandFailed(format!(
+                "Failed to start nginx: {}",
+                output.stderr
+            )));
         }
 
         Ok(())
@@ -498,12 +608,15 @@ done
     /// Stop nginx
     pub async fn stop_nginx(&self, server_id: &str) -> Result<(), AppError> {
         let server = self.get_server(server_id).await?;
-        
+
         let cmd = "sudo systemctl stop nginx || sudo service nginx stop";
         let output = self.ssh_client.execute_command(&server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
-            return Err(AppError::CommandFailed(format!("Failed to stop nginx: {}", output.stderr)));
+            return Err(AppError::CommandFailed(format!(
+                "Failed to stop nginx: {}",
+                output.stderr
+            )));
         }
 
         Ok(())
@@ -520,7 +633,14 @@ done
     }
 
     /// Parse nginx config to extract domain info
-    fn parse_nginx_config(&self, config: &str, server_id: &str, site_name: &str, config_path: &str, enabled: bool) -> NginxDomain {
+    fn parse_nginx_config(
+        &self,
+        config: &str,
+        server_id: &str,
+        site_name: &str,
+        config_path: &str,
+        enabled: bool,
+    ) -> NginxDomain {
         let mut domain = site_name.to_string();
         let mut aliases = Vec::new();
         let mut root_path = format!("/var/www/{}", site_name);
@@ -531,7 +651,7 @@ done
 
         for line in config.lines() {
             let line = line.trim();
-            
+
             if line.starts_with("server_name") {
                 let names: Vec<&str> = line
                     .trim_start_matches("server_name")
@@ -554,21 +674,21 @@ done
                     line.trim_start_matches("ssl_certificate")
                         .trim_end_matches(';')
                         .trim()
-                        .to_string()
+                        .to_string(),
                 );
             } else if line.contains("ssl_certificate_key") {
                 ssl_certificate_key = Some(
                     line.trim_start_matches("ssl_certificate_key")
                         .trim_end_matches(';')
                         .trim()
-                        .to_string()
+                        .to_string(),
                 );
             } else if line.starts_with("proxy_pass") {
                 proxy_pass = Some(
                     line.trim_start_matches("proxy_pass")
                         .trim_end_matches(';')
                         .trim()
-                        .to_string()
+                        .to_string(),
                 );
             }
         }

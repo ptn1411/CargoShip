@@ -1,5 +1,5 @@
-use crate::error::Result;
 use super::models::TerminalSettings;
+use crate::error::Result;
 use sqlx::SqlitePool;
 
 pub struct SettingsManager {
@@ -13,17 +13,15 @@ impl SettingsManager {
 
     pub async fn get_terminal_settings(&self) -> Result<TerminalSettings> {
         let row = sqlx::query_scalar::<_, String>(
-            "SELECT value FROM app_settings WHERE key = 'terminal_settings'"
+            "SELECT value FROM app_settings WHERE key = 'terminal_settings'",
         )
         .fetch_optional(&self.db)
         .await?;
 
         match row {
-            Some(json) => {
-                serde_json::from_str(&json).map_err(|e| {
-                    crate::error::AppError::ValidationError(format!("Invalid settings JSON: {}", e))
-                })
-            }
+            Some(json) => serde_json::from_str(&json).map_err(|e| {
+                crate::error::AppError::ValidationError(format!("Invalid settings JSON: {}", e))
+            }),
             None => Ok(TerminalSettings::default()),
         }
     }

@@ -1,8 +1,8 @@
+use super::models::*;
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use crate::ssh::{create_ssh_session, authenticate_session};
-use super::models::*;
+use crate::ssh::{authenticate_session, create_ssh_session};
 use chrono::{TimeZone, Utc};
 use std::sync::Arc;
 
@@ -19,20 +19,28 @@ impl FileBrowser {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, server, &self.credential_store)?;
 
-        let sftp = session.sftp()
+        let sftp = session
+            .sftp()
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e)))?;
 
         let normalized_path = normalize_path(path);
-        let _dir = sftp.opendir(std::path::Path::new(&normalized_path))
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to open directory: {}", e)))?;
+        let _dir = sftp
+            .opendir(std::path::Path::new(&normalized_path))
+            .map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to open directory: {}", e))
+            })?;
 
         let mut entries = Vec::new();
 
-        for entry in sftp.readdir(std::path::Path::new(&normalized_path))
-            .map_err(|e| AppError::FileOperationFailed(format!("Failed to read directory: {}", e)))? 
+        for entry in sftp
+            .readdir(std::path::Path::new(&normalized_path))
+            .map_err(|e| {
+                AppError::FileOperationFailed(format!("Failed to read directory: {}", e))
+            })?
         {
             let (path_buf, stat) = entry;
-            let name = path_buf.file_name()
+            let name = path_buf
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
@@ -56,8 +64,13 @@ impl FileBrowser {
                 format!("{}/{}", normalized_path, name)
             };
 
-            let modified_at = stat.mtime
-                .map(|t| Utc.timestamp_opt(t as i64, 0).single().unwrap_or_else(Utc::now))
+            let modified_at = stat
+                .mtime
+                .map(|t| {
+                    Utc.timestamp_opt(t as i64, 0)
+                        .single()
+                        .unwrap_or_else(Utc::now)
+                })
                 .unwrap_or_else(Utc::now);
 
             let permissions = format_permissions(stat.perm.unwrap_or(0));
@@ -73,22 +86,25 @@ impl FileBrowser {
         }
 
         // Sort: directories first, then by name
-        entries.sort_by(|a, b| {
-            match (&a.file_type, &b.file_type) {
-                (FileType::Directory, FileType::Directory) => a.name.cmp(&b.name),
-                (FileType::Directory, _) => std::cmp::Ordering::Less,
-                (_, FileType::Directory) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        entries.sort_by(|a, b| match (&a.file_type, &b.file_type) {
+            (FileType::Directory, FileType::Directory) => a.name.cmp(&b.name),
+            (FileType::Directory, _) => std::cmp::Ordering::Less,
+            (_, FileType::Directory) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
 
         Ok(entries)
     }
 
-    pub fn search_files(&self, server: &Server, path: &str, pattern: &str) -> Result<Vec<FileEntry>> {
+    pub fn search_files(
+        &self,
+        server: &Server,
+        path: &str,
+        pattern: &str,
+    ) -> Result<Vec<FileEntry>> {
         let entries = self.list_directory(server, path)?;
         let pattern_lower = pattern.to_lowercase();
-        
+
         Ok(entries
             .into_iter()
             .filter(|e| e.name.to_lowercase().contains(&pattern_lower))
@@ -99,11 +115,13 @@ impl FileBrowser {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, server, &self.credential_store)?;
 
-        let sftp = session.sftp()
+        let sftp = session
+            .sftp()
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e)))?;
 
         let normalized_path = normalize_path(path);
-        let stat = sftp.stat(std::path::Path::new(&normalized_path))
+        let stat = sftp
+            .stat(std::path::Path::new(&normalized_path))
             .map_err(|e| AppError::FileOperationFailed(format!("Failed to stat file: {}", e)))?;
 
         let name = std::path::Path::new(&normalized_path)
@@ -120,8 +138,13 @@ impl FileBrowser {
             FileType::File
         };
 
-        let modified_at = stat.mtime
-            .map(|t| Utc.timestamp_opt(t as i64, 0).single().unwrap_or_else(Utc::now))
+        let modified_at = stat
+            .mtime
+            .map(|t| {
+                Utc.timestamp_opt(t as i64, 0)
+                    .single()
+                    .unwrap_or_else(Utc::now)
+            })
             .unwrap_or_else(Utc::now);
 
         let permissions = format_permissions(stat.perm.unwrap_or(0));

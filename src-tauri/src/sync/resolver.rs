@@ -1,8 +1,8 @@
+use super::engine::SyncEngine;
+use super::models::*;
 use crate::cache::CacheFileInput;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use super::engine::SyncEngine;
-use super::models::*;
 use std::sync::Arc;
 
 /// Handles file conflict detection and resolution
@@ -17,13 +17,10 @@ impl ConflictResolver {
     }
 
     /// Generate a diff between local cached content and remote content
-    pub async fn get_diff(
-        &self,
-        server: &Server,
-        remote_path: &str,
-    ) -> Result<FileDiff> {
+    pub async fn get_diff(&self, server: &Server, remote_path: &str) -> Result<FileDiff> {
         // Get local cached content
-        let local_content = self.sync_engine
+        let local_content = self
+            .sync_engine
             .cache_manager()
             .read_cached_content(&server.id, remote_path)
             .await?
@@ -31,7 +28,8 @@ impl ConflictResolver {
             .unwrap_or_default();
 
         // Get remote content
-        let remote_file = self.sync_engine
+        let remote_file = self
+            .sync_engine
             .file_manager()
             .download_file(server, remote_path)
             .await?;
@@ -57,25 +55,30 @@ impl ConflictResolver {
         match resolution {
             ConflictResolution::KeepLocal => {
                 // Upload local content to remote
-                let local_content = self.sync_engine
+                let local_content = self
+                    .sync_engine
                     .cache_manager()
                     .read_cached_content(&server.id, remote_path)
                     .await?
-                    .ok_or_else(|| AppError::FileOperationFailed(
-                        format!("No local cache found for: {}", remote_path)
-                    ))?;
+                    .ok_or_else(|| {
+                        AppError::FileOperationFailed(format!(
+                            "No local cache found for: {}",
+                            remote_path
+                        ))
+                    })?;
 
                 let content_str = String::from_utf8_lossy(&local_content).to_string();
                 self.sync_engine
                     .file_manager()
                     .save_file(server, remote_path, &content_str)
                     .await?;
-                
+
                 // Cache remains unchanged for KeepLocal
             }
             ConflictResolution::UseRemote => {
                 // Download remote and update cache
-                let remote_file = self.sync_engine
+                let remote_file = self
+                    .sync_engine
                     .file_manager()
                     .download_file(server, remote_path)
                     .await?;
@@ -100,9 +103,10 @@ impl ConflictResolver {
                     .await?;
 
                 // Update cache with merged content
-                let remote_time = self.sync_engine
+                let remote_time = self
+                    .sync_engine
                     .get_remote_modified_time(server, remote_path)?;
-                
+
                 let cache_input = CacheFileInput {
                     server_id: server.id.clone(),
                     remote_path: remote_path.to_string(),
@@ -134,7 +138,7 @@ pub fn generate_diff(local: &str, remote: &str) -> Vec<DiffChange> {
     // Use Myers diff algorithm (simplified version)
     let mut changes = Vec::new();
     let lcs = longest_common_subsequence(&local_lines, &remote_lines);
-    
+
     let mut local_idx = 0;
     let mut remote_idx = 0;
     let mut lcs_idx = 0;
@@ -205,14 +209,14 @@ pub fn generate_diff(local: &str, remote: &str) -> Vec<DiffChange> {
 fn longest_common_subsequence<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<&'a str> {
     let m = a.len();
     let n = b.len();
-    
+
     if m == 0 || n == 0 {
         return Vec::new();
     }
 
     // Build LCS table
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    
+
     for i in 1..=m {
         for j in 1..=n {
             if a[i - 1] == b[j - 1] {
@@ -227,7 +231,7 @@ fn longest_common_subsequence<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<&'a str> 
     let mut lcs = Vec::new();
     let mut i = m;
     let mut j = n;
-    
+
     while i > 0 && j > 0 {
         if a[i - 1] == b[j - 1] {
             lcs.push(a[i - 1]);
@@ -248,7 +252,7 @@ fn longest_common_subsequence<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<&'a str> 
 /// This is useful for verifying diff correctness
 pub fn apply_diff(_local: &str, changes: &[DiffChange]) -> String {
     let mut result = Vec::new();
-    
+
     for change in changes {
         match change.change_type {
             DiffChangeType::Unchanged | DiffChangeType::Added => {
@@ -259,7 +263,7 @@ pub fn apply_diff(_local: &str, changes: &[DiffChange]) -> String {
             }
         }
     }
-    
+
     result.join("\n")
 }
 
@@ -271,7 +275,7 @@ mod tests {
     fn test_generate_diff_no_changes() {
         let content = "line1\nline2\nline3";
         let changes = generate_diff(content, content);
-        
+
         assert_eq!(changes.len(), 3);
         for change in &changes {
             assert_eq!(change.change_type, DiffChangeType::Unchanged);
@@ -283,11 +287,12 @@ mod tests {
         let local = "line1\nline3";
         let remote = "line1\nline2\nline3";
         let changes = generate_diff(local, remote);
-        
-        let added: Vec<_> = changes.iter()
+
+        let added: Vec<_> = changes
+            .iter()
             .filter(|c| c.change_type == DiffChangeType::Added)
             .collect();
-        
+
         assert_eq!(added.len(), 1);
         assert_eq!(added[0].content, "line2");
     }
@@ -297,11 +302,12 @@ mod tests {
         let local = "line1\nline2\nline3";
         let remote = "line1\nline3";
         let changes = generate_diff(local, remote);
-        
-        let removed: Vec<_> = changes.iter()
+
+        let removed: Vec<_> = changes
+            .iter()
             .filter(|c| c.change_type == DiffChangeType::Removed)
             .collect();
-        
+
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].content, "line2");
     }
@@ -311,14 +317,16 @@ mod tests {
         let local = "line1\nold_line\nline3";
         let remote = "line1\nnew_line\nline3";
         let changes = generate_diff(local, remote);
-        
-        let removed: Vec<_> = changes.iter()
+
+        let removed: Vec<_> = changes
+            .iter()
             .filter(|c| c.change_type == DiffChangeType::Removed)
             .collect();
-        let added: Vec<_> = changes.iter()
+        let added: Vec<_> = changes
+            .iter()
             .filter(|c| c.change_type == DiffChangeType::Added)
             .collect();
-        
+
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].content, "old_line");
         assert_eq!(added.len(), 1);
@@ -329,10 +337,10 @@ mod tests {
     fn test_apply_diff_roundtrip() {
         let local = "line1\nline2\nline3";
         let remote = "line1\nnew_line\nline3\nline4";
-        
+
         let changes = generate_diff(local, remote);
         let reconstructed = apply_diff(local, &changes);
-        
+
         assert_eq!(reconstructed, remote);
     }
 
@@ -340,10 +348,10 @@ mod tests {
     fn test_apply_diff_empty_to_content() {
         let local = "";
         let remote = "line1\nline2";
-        
+
         let changes = generate_diff(local, remote);
         let reconstructed = apply_diff(local, &changes);
-        
+
         assert_eq!(reconstructed, remote);
     }
 
@@ -351,10 +359,10 @@ mod tests {
     fn test_apply_diff_content_to_empty() {
         let local = "line1\nline2";
         let remote = "";
-        
+
         let changes = generate_diff(local, remote);
         let reconstructed = apply_diff(local, &changes);
-        
+
         assert_eq!(reconstructed, remote);
     }
 
@@ -363,7 +371,7 @@ mod tests {
         let a = vec!["a", "b", "c", "d"];
         let b = vec!["a", "c", "d"];
         let lcs = longest_common_subsequence(&a, &b);
-        
+
         assert_eq!(lcs, vec!["a", "c", "d"]);
     }
 
@@ -372,7 +380,7 @@ mod tests {
         let a: Vec<&str> = vec![];
         let b = vec!["a", "b"];
         let lcs = longest_common_subsequence(&a, &b);
-        
+
         assert!(lcs.is_empty());
     }
 
@@ -384,7 +392,7 @@ mod tests {
             new_line: Some(5),
             content: "new content".to_string(),
         };
-        
+
         let json = serde_json::to_string(&change).unwrap();
         assert!(json.contains("added"));
         assert!(json.contains("new content"));

@@ -1,5 +1,5 @@
-use crate::error::{AppError, Result};
 use crate::deployments::models::*;
+use crate::error::{AppError, Result};
 use chrono::Utc;
 use serde::Serialize;
 use sqlx::SqlitePool;
@@ -55,11 +55,17 @@ pub struct DeploymentLogger {
 
 impl DeploymentLogger {
     pub fn new(db: SqlitePool) -> Self {
-        Self { db, app_handle: None }
+        Self {
+            db,
+            app_handle: None,
+        }
     }
 
     pub fn with_app_handle(db: SqlitePool, app_handle: AppHandle) -> Self {
-        Self { db, app_handle: Some(app_handle) }
+        Self {
+            db,
+            app_handle: Some(app_handle),
+        }
     }
 
     /// Create a new deployment record with initial status 'Running'
@@ -80,10 +86,12 @@ impl DeploymentLogger {
             triggered_by.to_string(),
         );
 
-        let server_ids_json = serde_json::to_string(&deployment.server_ids)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize server_ids: {}", e)))?;
-        let variables_json = serde_json::to_string(&deployment.variables)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize variables: {}", e)))?;
+        let server_ids_json = serde_json::to_string(&deployment.server_ids).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize server_ids: {}", e))
+        })?;
+        let variables_json = serde_json::to_string(&deployment.variables).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize variables: {}", e))
+        })?;
 
         sqlx::query(
             r#"
@@ -137,10 +145,12 @@ impl DeploymentLogger {
         );
         deployment.rollback_of = Some(original_deployment_id.to_string());
 
-        let server_ids_json = serde_json::to_string(&deployment.server_ids)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize server_ids: {}", e)))?;
-        let variables_json = serde_json::to_string(&deployment.variables)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize variables: {}", e)))?;
+        let server_ids_json = serde_json::to_string(&deployment.server_ids).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize server_ids: {}", e))
+        })?;
+        let variables_json = serde_json::to_string(&deployment.variables).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize variables: {}", e))
+        })?;
 
         sqlx::query(
             r#"
@@ -356,13 +366,12 @@ impl DeploymentLogger {
         let completed_at = Utc::now();
 
         // Get started_at to calculate duration
-        let row = sqlx::query_scalar::<_, String>(
-            "SELECT started_at FROM deployments WHERE id = ?"
-        )
-        .bind(deployment_id)
-        .fetch_optional(&self.db)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to get deployment: {}", e)))?;
+        let row =
+            sqlx::query_scalar::<_, String>("SELECT started_at FROM deployments WHERE id = ?")
+                .bind(deployment_id)
+                .fetch_optional(&self.db)
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to get deployment: {}", e)))?;
 
         let duration_ms = if let Some(started_at_str) = row {
             let started_at = chrono::DateTime::parse_from_rfc3339(&started_at_str)
@@ -370,7 +379,10 @@ impl DeploymentLogger {
                 .with_timezone(&Utc);
             (completed_at - started_at).num_milliseconds() as u64
         } else {
-            return Err(AppError::ValidationError(format!("Deployment not found: {}", deployment_id)));
+            return Err(AppError::ValidationError(format!(
+                "Deployment not found: {}",
+                deployment_id
+            )));
         };
 
         sqlx::query(
@@ -408,14 +420,14 @@ impl DeploymentLogger {
         deployment_id: &str,
         status: DeploymentStatus,
     ) -> Result<()> {
-        sqlx::query(
-            "UPDATE deployments SET status = ? WHERE id = ?"
-        )
-        .bind(status.to_string())
-        .bind(deployment_id)
-        .execute(&self.db)
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to update deployment status: {}", e)))?;
+        sqlx::query("UPDATE deployments SET status = ? WHERE id = ?")
+            .bind(status.to_string())
+            .bind(deployment_id)
+            .execute(&self.db)
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to update deployment status: {}", e))
+            })?;
 
         Ok(())
     }
@@ -512,11 +524,15 @@ impl DeploymentLogger {
     }
 
     /// Helper to execute list query with dynamic parameters
-    async fn execute_list_query(&self, query: &str, params: &[String]) -> Result<Vec<DeploymentRow>> {
+    async fn execute_list_query(
+        &self,
+        query: &str,
+        params: &[String],
+    ) -> Result<Vec<DeploymentRow>> {
         // SQLx doesn't support dynamic parameter binding easily, so we use a workaround
         // For simplicity, we'll build the query with bound parameters
         let mut sqlx_query = sqlx::query_as::<_, DeploymentRow>(query);
-        
+
         for param in params {
             sqlx_query = sqlx_query.bind(param);
         }
@@ -529,27 +545,31 @@ impl DeploymentLogger {
 
     /// Export deployment logs to specified format
     /// Requirements: 7.4
-    pub async fn export_deployment_logs(&self, deployment_id: &str, format: ExportFormat) -> Result<String> {
-        let deployment = self.get_deployment(deployment_id).await?
-            .ok_or_else(|| AppError::ValidationError(format!("Deployment not found: {}", deployment_id)))?;
+    pub async fn export_deployment_logs(
+        &self,
+        deployment_id: &str,
+        format: ExportFormat,
+    ) -> Result<String> {
+        let deployment = self.get_deployment(deployment_id).await?.ok_or_else(|| {
+            AppError::ValidationError(format!("Deployment not found: {}", deployment_id))
+        })?;
 
         match format {
-            ExportFormat::Json => {
-                serde_json::to_string_pretty(&deployment)
-                    .map_err(|e| AppError::ValidationError(format!("Failed to export to JSON: {}", e)))
-            }
-            ExportFormat::Txt => {
-                Ok(self.format_deployment_as_text(&deployment))
-            }
+            ExportFormat::Json => serde_json::to_string_pretty(&deployment)
+                .map_err(|e| AppError::ValidationError(format!("Failed to export to JSON: {}", e))),
+            ExportFormat::Txt => Ok(self.format_deployment_as_text(&deployment)),
         }
     }
 
     /// Format deployment as human-readable text
     fn format_deployment_as_text(&self, deployment: &Deployment) -> String {
         let mut output = String::new();
-        
+
         output.push_str(&format!("Deployment: {}\n", deployment.id));
-        output.push_str(&format!("Script: {} ({})\n", deployment.script_name, deployment.script_id));
+        output.push_str(&format!(
+            "Script: {} ({})\n",
+            deployment.script_name, deployment.script_id
+        ));
         output.push_str(&format!("Status: {}\n", deployment.status));
         output.push_str(&format!("Started: {}\n", deployment.started_at));
         if let Some(ref completed_at) = deployment.completed_at {
@@ -560,7 +580,7 @@ impl DeploymentLogger {
         }
         output.push_str(&format!("Triggered by: {}\n", deployment.triggered_by));
         output.push_str(&format!("Servers: {}\n", deployment.server_ids.join(", ")));
-        
+
         if !deployment.variables.is_empty() {
             output.push_str("\nVariables:\n");
             for (key, value) in &deployment.variables {
@@ -571,7 +591,10 @@ impl DeploymentLogger {
         if !deployment.logs.is_empty() {
             output.push_str("\n--- Logs ---\n");
             for log in &deployment.logs {
-                output.push_str(&format!("\n[{}] {} on {}\n", log.status, log.step_name, log.server_name));
+                output.push_str(&format!(
+                    "\n[{}] {} on {}\n",
+                    log.status, log.step_name, log.server_name
+                ));
                 output.push_str(&format!("Started: {}\n", log.started_at));
                 if let Some(ref completed_at) = log.completed_at {
                     output.push_str(&format!("Completed: {}\n", completed_at));
@@ -592,7 +615,11 @@ impl DeploymentLogger {
 
     /// Search within deployment logs
     /// Requirements: 7.5
-    pub async fn search_logs(&self, deployment_id: &str, search_term: &str) -> Result<Vec<DeploymentLog>> {
+    pub async fn search_logs(
+        &self,
+        deployment_id: &str,
+        search_term: &str,
+    ) -> Result<Vec<DeploymentLog>> {
         let rows = sqlx::query_as::<_, DeploymentLogRow>(
             "SELECT id, deployment_id, step_id, step_name, server_id, server_name, output, stderr, exit_code, started_at, completed_at, duration_ms, status FROM deployment_logs WHERE deployment_id = ? AND (output LIKE ? OR stderr LIKE ?) ORDER BY started_at ASC"
         )
@@ -631,20 +658,22 @@ impl DeploymentRow {
     fn into_deployment(self) -> Result<Deployment> {
         let server_ids: Vec<String> = serde_json::from_str(&self.server_ids)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse server_ids: {}", e)))?;
-        
+
         let variables: HashMap<String, String> = serde_json::from_str(&self.variables)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse variables: {}", e)))?;
-        
-        let status: DeploymentStatus = self.status.parse()
+
+        let status: DeploymentStatus = self
+            .status
+            .parse()
             .map_err(|e: String| AppError::DatabaseError(e))?;
 
         let started_at = chrono::DateTime::parse_from_rfc3339(&self.started_at)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse started_at: {}", e)))?
             .with_timezone(&Utc);
-        
-        let completed_at = self.completed_at
-            .map(|s| chrono::DateTime::parse_from_rfc3339(&s)
-                .map(|dt| dt.with_timezone(&Utc)))
+
+        let completed_at = self
+            .completed_at
+            .map(|s| chrono::DateTime::parse_from_rfc3339(&s).map(|dt| dt.with_timezone(&Utc)))
             .transpose()
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse completed_at: {}", e)))?;
 
@@ -685,16 +714,18 @@ struct DeploymentLogRow {
 
 impl DeploymentLogRow {
     fn into_log(self) -> Result<DeploymentLog> {
-        let status: StepStatus = self.status.parse()
+        let status: StepStatus = self
+            .status
+            .parse()
             .map_err(|e: String| AppError::DatabaseError(e))?;
 
         let started_at = chrono::DateTime::parse_from_rfc3339(&self.started_at)
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse started_at: {}", e)))?
             .with_timezone(&Utc);
-        
-        let completed_at = self.completed_at
-            .map(|s| chrono::DateTime::parse_from_rfc3339(&s)
-                .map(|dt| dt.with_timezone(&Utc)))
+
+        let completed_at = self
+            .completed_at
+            .map(|s| chrono::DateTime::parse_from_rfc3339(&s).map(|dt| dt.with_timezone(&Utc)))
             .transpose()
             .map_err(|e| AppError::DatabaseError(format!("Failed to parse completed_at: {}", e)))?;
 

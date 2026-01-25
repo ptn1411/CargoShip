@@ -86,7 +86,7 @@ pub fn path_to_breadcrumbs(path: &str) -> Vec<Breadcrumb> {
 /// Normalize a file path (remove double slashes, resolve . and ..)
 pub fn normalize_path(path: &str) -> String {
     let mut segments: Vec<&str> = Vec::new();
-    
+
     for segment in path.split('/') {
         match segment {
             "" | "." => continue,
@@ -144,11 +144,15 @@ mod tests {
             "",
             "/a/b/c/../../d",
         ];
-        
+
         for path in paths {
             let once = normalize_path(path);
             let twice = normalize_path(&once);
-            assert_eq!(once, twice, "Normalizing '{}' twice should equal normalizing once", path);
+            assert_eq!(
+                once, twice,
+                "Normalizing '{}' twice should equal normalizing once",
+                path
+            );
         }
     }
 
@@ -183,27 +187,29 @@ mod tests {
     fn test_path_to_breadcrumbs_roundtrip() {
         // Property 10: Path to Breadcrumb Conversion
         // Converting to breadcrumbs and joining segments should produce the original normalized path
-        let paths = vec![
-            "/home/user/docs",
-            "/var/log",
-            "/",
-            "/a/b/c/d/e",
-        ];
-        
+        let paths = vec!["/home/user/docs", "/var/log", "/", "/a/b/c/d/e"];
+
         for path in paths {
             let normalized = normalize_path(path);
             let breadcrumbs = path_to_breadcrumbs(&normalized);
-            
+
             // Join breadcrumb paths - the last breadcrumb's path should equal the normalized path
-            let reconstructed = breadcrumbs.last().map(|b| b.path.clone()).unwrap_or_else(|| "/".to_string());
-            assert_eq!(reconstructed, normalized, "Breadcrumb roundtrip failed for '{}'", path);
+            let reconstructed = breadcrumbs
+                .last()
+                .map(|b| b.path.clone())
+                .unwrap_or_else(|| "/".to_string());
+            assert_eq!(
+                reconstructed, normalized,
+                "Breadcrumb roundtrip failed for '{}'",
+                path
+            );
         }
     }
 
     #[test]
     fn test_path_to_breadcrumbs_incremental_paths() {
         let breadcrumbs = path_to_breadcrumbs("/a/b/c");
-        
+
         // Each breadcrumb should have the correct incremental path
         assert_eq!(breadcrumbs[0].path, "/");
         assert_eq!(breadcrumbs[1].path, "/a");

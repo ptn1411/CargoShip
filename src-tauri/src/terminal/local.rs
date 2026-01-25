@@ -42,12 +42,15 @@ impl SessionReader {
         };
 
         let mut buf = vec![0u8; 4096];
-        
+
         match reader.read(&mut buf) {
             Ok(0) => Ok(Vec::new()),
             Ok(n) => Ok(buf[..n].to_vec()),
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Ok(Vec::new()),
-            Err(e) => Err(AppError::ConnectionFailed(format!("Failed to read from terminal: {}", e))),
+            Err(e) => Err(AppError::ConnectionFailed(format!(
+                "Failed to read from terminal: {}",
+                e
+            ))),
         }
     }
 
@@ -78,70 +81,82 @@ impl LocalTerminalManager {
 
     pub fn create_session(&self, cols: u16, rows: u16) -> Result<String> {
         let mut sessions = self.sessions.lock().unwrap();
-        
+
         if sessions.len() >= self.max_sessions {
             return Err(AppError::SessionLimitExceeded(self.max_sessions));
         }
 
         let pty_system = native_pty_system();
-        
-        let pair = pty_system.openpty(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }).map_err(|e| AppError::ConnectionFailed(format!("Failed to open PTY: {}", e)))?;
+
+        let pair = pty_system
+            .openpty(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| AppError::ConnectionFailed(format!("Failed to open PTY: {}", e)))?;
 
         // Get the default shell
         #[cfg(windows)]
         let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-        
+
         #[cfg(not(windows))]
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
         let mut cmd = CommandBuilder::new(&shell);
-        
+
         // Set working directory to user's home
         if let Some(home) = dirs::home_dir() {
             cmd.cwd(home);
         }
 
         // Spawn the shell
-        let _child = pair.slave.spawn_command(cmd)
+        let _child = pair
+            .slave
+            .spawn_command(cmd)
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to spawn shell: {}", e)))?;
 
-        let writer = pair.master.take_writer()
+        let writer = pair
+            .master
+            .take_writer()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to get PTY writer: {}", e)))?;
-        
-        let reader = pair.master.try_clone_reader()
+
+        let reader = pair
+            .master
+            .try_clone_reader()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to get PTY reader: {}", e)))?;
 
         let session_id = Uuid::new_v4().to_string();
-        
+
         let session = LocalTerminalSession {
             name: "Local".to_string(),
             master: pair.master,
             writer,
             last_activity: Instant::now(),
         };
-        
+
         sessions.insert(session_id.clone(), session);
-        
+
         // Store reader separately with its own Arc
         let mut readers = self.readers.lock().unwrap();
         readers.insert(session_id.clone(), Arc::new(SessionReader::new(reader)));
-        
+
         Ok(session_id)
     }
 
     pub fn write_to_session(&self, session_id: &str, data: &[u8]) -> Result<()> {
         let mut sessions = self.sessions.lock().unwrap();
-        let session = sessions.get_mut(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Local session not found: {}", session_id)))?;
-        
-        session.writer.write_all(data)
-            .map_err(|e| AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e)))?;
-        session.writer.flush()
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Local session not found: {}", session_id))
+        })?;
+
+        session.writer.write_all(data).map_err(|e| {
+            AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e))
+        })?;
+        session
+            .writer
+            .flush()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to flush terminal: {}", e)))?;
         session.last_activity = Instant::now();
         Ok(())
@@ -153,23 +168,28 @@ impl LocalTerminalManager {
     }
 
     pub fn read_from_session(&self, session_id: &str) -> Result<Vec<u8>> {
-        let reader = self.get_reader(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Local session not found: {}", session_id)))?;
-        
+        let reader = self.get_reader(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Local session not found: {}", session_id))
+        })?;
+
         reader.read()
     }
 
     pub fn resize_session(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         let sessions = self.sessions.lock().unwrap();
-        let session = sessions.get(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Local session not found: {}", session_id)))?;
-        
-        session.master.resize(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        }).map_err(|e| AppError::ConnectionFailed(format!("Failed to resize PTY: {}", e)))?;
+        let session = sessions.get(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Local session not found: {}", session_id))
+        })?;
+
+        session
+            .master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|e| AppError::ConnectionFailed(format!("Failed to resize PTY: {}", e)))?;
         Ok(())
     }
 
@@ -181,13 +201,13 @@ impl LocalTerminalManager {
                 reader.mark_closed();
             }
         }
-        
+
         // Remove reader from map
         {
             let mut readers = self.readers.lock().unwrap();
             readers.remove(session_id);
         }
-        
+
         // Then remove session (this drops the PTY which closes the shell)
         let mut sessions = self.sessions.lock().unwrap();
         sessions.remove(session_id);
@@ -212,7 +232,7 @@ impl LocalTerminalManager {
                 reader.mark_closed();
             }
         }
-        
+
         let mut readers = self.readers.lock().unwrap();
         readers.clear();
         let mut sessions = self.sessions.lock().unwrap();

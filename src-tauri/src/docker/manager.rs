@@ -1,7 +1,7 @@
-use crate::ssh::SshClient;
-use crate::server::Server;
 use super::models::*;
-use anyhow::{Result, anyhow};
+use crate::server::Server;
+use crate::ssh::SshClient;
+use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -18,13 +18,13 @@ impl DockerManager {
     pub fn get_info(&self, server: &Server) -> Result<DockerInfo> {
         let cmd = r#"docker info --format '{{json .}}' 2>/dev/null"#;
         let output = self.ssh_client.execute_command(server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Docker not available: {}", output.stderr));
         }
 
         let info: serde_json::Value = serde_json::from_str(&output.stdout)?;
-        
+
         Ok(DockerInfo {
             version: info["ServerVersion"].as_str().unwrap_or("").to_string(),
             api_version: info["ApiVersion"].as_str().unwrap_or("").to_string(),
@@ -48,16 +48,18 @@ impl DockerManager {
             all_flag
         );
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to list containers: {}", output.stderr));
         }
 
         let mut containers = Vec::new();
         for line in output.stdout.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let c: serde_json::Value = serde_json::from_str(line)?;
-            
+
             let state = match c["State"].as_str().unwrap_or("").to_lowercase().as_str() {
                 "running" => ContainerState::Running,
                 "paused" => ContainerState::Paused,
@@ -69,7 +71,8 @@ impl DockerManager {
             };
 
             let ports = self.parse_ports(c["Ports"].as_str().unwrap_or(""));
-            let networks: Vec<String> = c["Networks"].as_str()
+            let networks: Vec<String> = c["Networks"]
+                .as_str()
                 .unwrap_or("")
                 .split(',')
                 .map(|s| s.trim().to_string())
@@ -78,7 +81,11 @@ impl DockerManager {
 
             containers.push(DockerContainer {
                 id: c["ID"].as_str().unwrap_or("").to_string(),
-                name: c["Names"].as_str().unwrap_or("").trim_start_matches('/').to_string(),
+                name: c["Names"]
+                    .as_str()
+                    .unwrap_or("")
+                    .trim_start_matches('/')
+                    .to_string(),
                 image: c["Image"].as_str().unwrap_or("").to_string(),
                 status: c["Status"].as_str().unwrap_or("").to_string(),
                 state,
@@ -96,8 +103,10 @@ impl DockerManager {
         let mut ports = Vec::new();
         for part in ports_str.split(',') {
             let part = part.trim();
-            if part.is_empty() { continue; }
-            
+            if part.is_empty() {
+                continue;
+            }
+
             // Parse formats like "0.0.0.0:8080->80/tcp" or "80/tcp"
             if let Some((host_part, container_part)) = part.split_once("->") {
                 let (host_ip, host_port) = if let Some((ip, port)) = host_part.rsplit_once(':') {
@@ -105,12 +114,13 @@ impl DockerManager {
                 } else {
                     (None, host_part.parse().ok())
                 };
-                
-                let (container_port, protocol) = if let Some((port, proto)) = container_part.split_once('/') {
-                    (port.parse().unwrap_or(0), proto.to_string())
-                } else {
-                    (container_part.parse().unwrap_or(0), "tcp".to_string())
-                };
+
+                let (container_port, protocol) =
+                    if let Some((port, proto)) = container_part.split_once('/') {
+                        (port.parse().unwrap_or(0), proto.to_string())
+                    } else {
+                        (container_part.parse().unwrap_or(0), "tcp".to_string())
+                    };
 
                 ports.push(PortMapping {
                     container_port,
@@ -192,7 +202,12 @@ impl DockerManager {
     }
 
     /// Get container logs
-    pub fn get_container_logs(&self, server: &Server, container_id: &str, tail: u32) -> Result<ContainerLogs> {
+    pub fn get_container_logs(
+        &self,
+        server: &Server,
+        container_id: &str,
+        tail: u32,
+    ) -> Result<ContainerLogs> {
         let cmd = format!("docker logs --tail {} {} 2>&1", tail, container_id);
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
         Ok(ContainerLogs {
@@ -202,19 +217,23 @@ impl DockerManager {
     }
 
     /// Get container stats
-    pub fn get_container_stats(&self, server: &Server, container_id: &str) -> Result<ContainerStats> {
+    pub fn get_container_stats(
+        &self,
+        server: &Server,
+        container_id: &str,
+    ) -> Result<ContainerStats> {
         let cmd = format!(
             r#"docker stats {} --no-stream --format '{{{{json .}}}}'"#,
             container_id
         );
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to get stats: {}", output.stderr));
         }
 
         let stats: serde_json::Value = serde_json::from_str(output.stdout.trim())?;
-        
+
         Ok(ContainerStats {
             cpu_percent: Self::parse_percent(stats["CPUPerc"].as_str().unwrap_or("0%")),
             memory_usage: Self::parse_memory(stats["MemUsage"].as_str().unwrap_or("0B")),
@@ -254,7 +273,7 @@ impl DockerManager {
         } else {
             (s, "B")
         };
-        
+
         let num: f64 = num.parse().unwrap_or(0.0);
         let multiplier = match unit.to_uppercase().as_str() {
             "B" => 1u64,
@@ -270,36 +289,39 @@ impl DockerManager {
     /// Create and run a new container
     pub fn create_container(&self, server: &Server, input: CreateContainerInput) -> Result<String> {
         let mut cmd = format!("docker run -d --name {}", input.name);
-        
+
         for port in &input.ports {
             let proto = port.protocol.as_deref().unwrap_or("tcp");
-            cmd.push_str(&format!(" -p {}:{}/{}", port.host_port, port.container_port, proto));
+            cmd.push_str(&format!(
+                " -p {}:{}/{}",
+                port.host_port, port.container_port, proto
+            ));
         }
-        
+
         for env in &input.env {
             cmd.push_str(&format!(" -e '{}'", env));
         }
-        
+
         for vol in &input.volumes {
             cmd.push_str(&format!(" -v {}", vol));
         }
-        
+
         if let Some(network) = &input.network {
             cmd.push_str(&format!(" --network {}", network));
         }
-        
+
         if let Some(restart) = &input.restart_policy {
             cmd.push_str(&format!(" --restart {}", restart));
         }
-        
+
         if let Some(labels) = &input.labels {
             for (k, v) in labels {
                 cmd.push_str(&format!(" -l {}={}", k, v));
             }
         }
-        
+
         cmd.push_str(&format!(" {}", input.image));
-        
+
         if let Some(command) = &input.command {
             cmd.push_str(&format!(" {}", command));
         }
@@ -315,14 +337,16 @@ impl DockerManager {
     pub fn list_images(&self, server: &Server) -> Result<Vec<DockerImage>> {
         let cmd = r#"docker images --format '{{json .}}'"#;
         let output = self.ssh_client.execute_command(server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to list images: {}", output.stderr));
         }
 
         let mut images = Vec::new();
         for line in output.stdout.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let img: serde_json::Value = serde_json::from_str(line)?;
             images.push(DockerImage {
                 id: img["ID"].as_str().unwrap_or("").to_string(),
@@ -342,7 +366,7 @@ impl DockerManager {
         } else {
             input.image
         };
-        
+
         let cmd = format!("docker pull {}", image);
         let output = self.ssh_client.execute_command(server, &cmd, Some(600))?;
         if output.exit_code != 0 {
@@ -366,14 +390,16 @@ impl DockerManager {
     pub fn list_volumes(&self, server: &Server) -> Result<Vec<DockerVolume>> {
         let cmd = r#"docker volume ls --format '{{json .}}'"#;
         let output = self.ssh_client.execute_command(server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to list volumes: {}", output.stderr));
         }
 
         let mut volumes = Vec::new();
         for line in output.stdout.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let vol: serde_json::Value = serde_json::from_str(line)?;
             volumes.push(DockerVolume {
                 name: vol["Name"].as_str().unwrap_or("").to_string(),
@@ -397,7 +423,7 @@ impl DockerManager {
                 cmd.push_str(&format!(" --label {}={}", k, v));
             }
         }
-        
+
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to create volume: {}", output.stderr));
@@ -420,14 +446,16 @@ impl DockerManager {
     pub fn list_networks(&self, server: &Server) -> Result<Vec<DockerNetwork>> {
         let cmd = r#"docker network ls --format '{{json .}}'"#;
         let output = self.ssh_client.execute_command(server, cmd, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to list networks: {}", output.stderr));
         }
 
         let mut networks = Vec::new();
         for line in output.stdout.lines() {
-            if line.trim().is_empty() { continue; }
+            if line.trim().is_empty() {
+                continue;
+            }
             let net: serde_json::Value = serde_json::from_str(line)?;
             networks.push(DockerNetwork {
                 id: net["ID"].as_str().unwrap_or("").to_string(),
@@ -455,7 +483,7 @@ impl DockerManager {
                 cmd.push_str(&format!(" --label {}={}", k, v));
             }
         }
-        
+
         let output = self.ssh_client.execute_command(server, &cmd, Some(30))?;
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to create network: {}", output.stderr));
@@ -477,16 +505,18 @@ impl DockerManager {
     pub fn list_compose_projects(&self, server: &Server) -> Result<Vec<DockerComposeProject>> {
         let cmd = r#"docker compose ls --format json 2>/dev/null || echo '[]'"#;
         let output = self.ssh_client.execute_command(server, cmd, Some(30))?;
-        
-        let projects: Vec<serde_json::Value> = serde_json::from_str(&output.stdout).unwrap_or_default();
-        
+
+        let projects: Vec<serde_json::Value> =
+            serde_json::from_str(&output.stdout).unwrap_or_default();
+
         let mut result = Vec::new();
         for p in projects {
             result.push(DockerComposeProject {
                 name: p["Name"].as_str().unwrap_or("").to_string(),
                 status: p["Status"].as_str().unwrap_or("").to_string(),
                 services: Vec::new(),
-                config_files: p["ConfigFiles"].as_str()
+                config_files: p["ConfigFiles"]
+                    .as_str()
                     .unwrap_or("")
                     .split(',')
                     .map(|s| s.trim().to_string())
@@ -509,7 +539,12 @@ impl DockerManager {
     }
 
     /// Docker Compose down
-    pub fn compose_down(&self, server: &Server, project_path: &str, remove_volumes: bool) -> Result<()> {
+    pub fn compose_down(
+        &self,
+        server: &Server,
+        project_path: &str,
+        remove_volumes: bool,
+    ) -> Result<()> {
         let vol_flag = if remove_volumes { "-v" } else { "" };
         let cmd = format!("cd {} && docker compose down {}", project_path, vol_flag);
         let output = self.ssh_client.execute_command(server, &cmd, Some(120))?;
@@ -529,7 +564,7 @@ impl DockerManager {
             "all" => "docker system prune -af",
             _ => return Err(anyhow!("Invalid prune type")),
         };
-        
+
         let output = self.ssh_client.execute_command(server, cmd, Some(120))?;
         if output.exit_code != 0 {
             return Err(anyhow!("Failed to prune: {}", output.stderr));
@@ -538,7 +573,12 @@ impl DockerManager {
     }
 
     /// Execute command in container
-    pub fn exec_container(&self, server: &Server, container_id: &str, command: &str) -> Result<String> {
+    pub fn exec_container(
+        &self,
+        server: &Server,
+        container_id: &str,
+        command: &str,
+    ) -> Result<String> {
         let cmd = format!("docker exec {} {}", container_id, command);
         let output = self.ssh_client.execute_command(server, &cmd, Some(60))?;
         if output.exit_code != 0 {

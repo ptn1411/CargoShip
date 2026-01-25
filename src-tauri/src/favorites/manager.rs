@@ -1,5 +1,5 @@
-use crate::error::{AppError, Result};
 use super::models::*;
+use crate::error::Result;
 use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -44,7 +44,7 @@ impl FavoritesManager {
 
         // Fetch the actual record (might have existing id)
         let row = sqlx::query_as::<_, FavoriteRow>(
-            "SELECT * FROM favorites WHERE item_type = ? AND item_id = ?"
+            "SELECT * FROM favorites WHERE item_type = ? AND item_id = ?",
         )
         .bind(&type_str)
         .bind(item_id)
@@ -71,11 +71,10 @@ impl FavoritesManager {
     /// List all favorites
     /// Requirements: 7.2
     pub async fn list_favorites(&self) -> Result<Vec<Favorite>> {
-        let rows = sqlx::query_as::<_, FavoriteRow>(
-            "SELECT * FROM favorites ORDER BY created_at DESC"
-        )
-        .fetch_all(&self.db)
-        .await?;
+        let rows =
+            sqlx::query_as::<_, FavoriteRow>("SELECT * FROM favorites ORDER BY created_at DESC")
+                .fetch_all(&self.db)
+                .await?;
 
         Ok(rows.into_iter().map(|r| r.into_favorite()).collect())
     }
@@ -85,7 +84,7 @@ impl FavoritesManager {
         let type_str = item_type.to_string();
 
         let rows = sqlx::query_as::<_, FavoriteRow>(
-            "SELECT * FROM favorites WHERE item_type = ? ORDER BY created_at DESC"
+            "SELECT * FROM favorites WHERE item_type = ? ORDER BY created_at DESC",
         )
         .bind(&type_str)
         .fetch_all(&self.db)
@@ -99,7 +98,7 @@ impl FavoritesManager {
         let type_str = item_type.to_string();
 
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM favorites WHERE item_type = ? AND item_id = ?"
+            "SELECT COUNT(*) FROM favorites WHERE item_type = ? AND item_id = ?",
         )
         .bind(&type_str)
         .bind(item_id)
@@ -144,7 +143,7 @@ impl FavoritesManager {
     /// Requirements: 7.4
     pub async fn get_recent_activity(&self, limit: u32) -> Result<Vec<ActivityLog>> {
         let rows = sqlx::query_as::<_, ActivityLogRow>(
-            "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ?"
+            "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ?",
         )
         .bind(limit as i64)
         .fetch_all(&self.db)

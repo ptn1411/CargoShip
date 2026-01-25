@@ -1,7 +1,7 @@
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use crate::ssh::{create_ssh_session, authenticate_session};
+use crate::ssh::{authenticate_session, create_ssh_session};
 use ssh2::Channel;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -30,6 +30,7 @@ impl TerminalSession {
     /// OPTIMIZATION: Increased buffer sizes for better throughput
     const WRITE_BUFFER_SIZE: usize = 8192;
     const READ_BUFFER_SIZE: usize = 16384;
+    #[allow(dead_code)]
     const FLUSH_INTERVAL: Duration = Duration::from_millis(50);
 
     pub fn create(
@@ -43,7 +44,8 @@ impl TerminalSession {
 
         authenticate_session(&session, server, credential_store)?;
 
-        let mut channel = session.channel_session()
+        let mut channel = session
+            .channel_session()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to open channel: {}", e)))?;
 
         // OPTIMIZATION: Set TCP_NODELAY on the underlying stream
@@ -52,11 +54,17 @@ impl TerminalSession {
         }
 
         // Request PTY with xterm-256color
-        channel.request_pty("xterm-256color", None, Some((cols as u32, rows as u32, 0, 0)))
+        channel
+            .request_pty(
+                "xterm-256color",
+                None,
+                Some((cols as u32, rows as u32, 0, 0)),
+            )
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to request PTY: {}", e)))?;
 
         // Start shell
-        channel.shell()
+        channel
+            .shell()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to start shell: {}", e)))?;
 
         // Set non-blocking mode for async I/O
@@ -78,7 +86,7 @@ impl TerminalSession {
     /// Write data to terminal - always flush immediately for interactive use
     pub fn write(&mut self, data: &[u8]) -> Result<()> {
         self.last_activity = Instant::now();
-        
+
         // For interactive terminal, always write and flush immediately
         // This ensures keystrokes are sent right away so the server can echo them back
         self.write_direct(data)
@@ -86,9 +94,11 @@ impl TerminalSession {
 
     /// Direct write without buffering
     fn write_direct(&mut self, data: &[u8]) -> Result<()> {
-        self.channel.write_all(data)
-            .map_err(|e| AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e)))?;
-        self.channel.flush()
+        self.channel.write_all(data).map_err(|e| {
+            AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e))
+        })?;
+        self.channel
+            .flush()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to flush terminal: {}", e)))?;
         Ok(())
     }
@@ -99,11 +109,13 @@ impl TerminalSession {
             return Ok(());
         }
 
-        self.channel.write_all(&self.write_buffer)
-            .map_err(|e| AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e)))?;
-        self.channel.flush()
+        self.channel.write_all(&self.write_buffer).map_err(|e| {
+            AppError::ConnectionFailed(format!("Failed to write to terminal: {}", e))
+        })?;
+        self.channel
+            .flush()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to flush terminal: {}", e)))?;
-        
+
         self.write_buffer.clear();
         Ok(())
     }
@@ -118,7 +130,7 @@ impl TerminalSession {
         self.last_activity = Instant::now();
 
         let mut result = Vec::new();
-        
+
         // Read in loop to get all available data
         loop {
             match self.channel.read(&mut self.read_buffer) {
@@ -132,9 +144,10 @@ impl TerminalSession {
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => {
-                    return Err(AppError::ConnectionFailed(
-                        format!("Failed to read from terminal: {}", e)
-                    ));
+                    return Err(AppError::ConnectionFailed(format!(
+                        "Failed to read from terminal: {}",
+                        e
+                    )));
                 }
             }
         }
@@ -144,7 +157,8 @@ impl TerminalSession {
 
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         self.last_activity = Instant::now();
-        self.channel.request_pty_size(cols as u32, rows as u32, None, None)
+        self.channel
+            .request_pty_size(cols as u32, rows as u32, None, None)
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to resize PTY: {}", e)))?;
         self.pty_size = (cols, rows);
         Ok(())
@@ -153,7 +167,7 @@ impl TerminalSession {
     pub fn close(&mut self) -> Result<()> {
         // Flush any pending writes
         let _ = self.flush_internal();
-        
+
         let _ = self.channel.send_eof();
         let _ = self.channel.wait_eof();
         let _ = self.channel.close();

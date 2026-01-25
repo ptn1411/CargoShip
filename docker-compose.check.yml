@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  # Run all checks
+  check:
+    build:
+      context: .
+      dockerfile: Dockerfile.check
+    volumes:
+      # Mount source for faster iteration (optional, remove for clean build)
+      # - .:/app
+      # Cache cargo registry
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      # Cache target
+      - cargo-target:/app/src-tauri/target
+
+  # Run only frontend checks
+  check-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.check
+    command: >
+      sh -c "
+        echo '📦 Frontend checks...' &&
+        npx tsc --noEmit &&
+        npm run build &&
+        echo '✅ Frontend checks passed!'
+      "
+
+  # Run only backend checks
+  check-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.check
+    command: >
+      sh -c "
+        echo '🦀 Backend checks...' &&
+        cd src-tauri &&
+        cargo check --all-features &&
+        cargo clippy --all-features -- -D warnings &&
+        cargo fmt --check &&
+        echo '✅ Backend checks passed!'
+      "
+    volumes:
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/app/src-tauri/target
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

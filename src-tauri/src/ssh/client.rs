@@ -1,8 +1,8 @@
+use super::models::*;
+use super::pool::{authenticate_session, create_ssh_session, ConnectionPool};
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use super::models::*;
-use super::pool::{authenticate_session, create_ssh_session, ConnectionPool};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -25,7 +25,10 @@ pub struct SshClient {
 }
 
 impl SshClient {
-    pub fn new(connection_pool: Arc<ConnectionPool>, credential_store: Arc<CredentialStore>) -> Self {
+    pub fn new(
+        connection_pool: Arc<ConnectionPool>,
+        credential_store: Arc<CredentialStore>,
+    ) -> Self {
         Self {
             connection_pool,
             credential_store,
@@ -39,7 +42,7 @@ impl SshClient {
     /// OPTIMIZED: Faster test connection with early exit on success
     pub fn test_connection(&self, server: &Server) -> Result<ConnectionStatus> {
         let start = Instant::now();
-        
+
         // Try to create SSH session with optimized timeouts
         let (session, tcp) = match create_ssh_session(&server.host, server.port) {
             Ok(s) => s,
@@ -69,7 +72,9 @@ impl SshClient {
         let server_info = self.get_server_info_internal(&session).ok();
 
         // Add connection to pool for reuse
-        let _ = self.connection_pool.add_connection(&server.id, session, tcp);
+        let _ = self
+            .connection_pool
+            .add_connection(&server.id, session, tcp);
 
         Ok(ConnectionStatus {
             connected: true,
@@ -82,7 +87,7 @@ impl SshClient {
     /// OPTIMIZED: Faster retry with jitter to avoid thundering herd
     pub fn test_connection_with_retry(&self, server: &Server) -> Result<ConnectionStatus> {
         let mut last_error = None;
-        
+
         for attempt in 0..MAX_RETRY_ATTEMPTS {
             if attempt > 0 {
                 // Add jitter to prevent multiple clients from retrying simultaneously
@@ -113,9 +118,10 @@ impl SshClient {
     pub fn get_server_info(&self, server: &Server) -> Result<ServerInfo> {
         // Try to use existing connection from pool
         if self.connection_pool.has_connection(&server.id) {
-            if let Some(info) = self.connection_pool.with_session(&server.id, |session| {
-                self.get_server_info_internal(session)
-            }) {
+            if let Some(info) = self
+                .connection_pool
+                .with_session(&server.id, |session| self.get_server_info_internal(session))
+            {
                 if let Ok(info) = info {
                     return Ok(info);
                 }
@@ -125,31 +131,37 @@ impl SshClient {
         // Create new connection
         let (session, tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, server, &self.credential_store)?;
-        
+
         let info = self.get_server_info_internal(&session)?;
-        
-        let _ = self.connection_pool.add_connection(&server.id, session, tcp);
-        
+
+        let _ = self
+            .connection_pool
+            .add_connection(&server.id, session, tcp);
+
         Ok(info)
     }
 
     /// Internal method to get server info from an authenticated session
     fn get_server_info_internal(&self, session: &ssh2::Session) -> Result<ServerInfo> {
-        let mut channel = session.channel_session()
+        let mut channel = session
+            .channel_session()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to open channel: {}", e)))?;
-        
-        channel.exec("uname -s && hostname && uname -r")
+
+        channel
+            .exec("uname -s && hostname && uname -r")
             .map_err(|e| AppError::CommandFailed(format!("Failed to execute command: {}", e)))?;
-        
+
         let mut output = String::new();
-        channel.read_to_string(&mut output)
+        channel
+            .read_to_string(&mut output)
             .map_err(|e| AppError::CommandFailed(format!("Failed to read output: {}", e)))?;
-        
-        channel.wait_close()
+
+        channel
+            .wait_close()
             .map_err(|e| AppError::CommandFailed(format!("Failed to close channel: {}", e)))?;
 
         let lines: Vec<&str> = output.trim().lines().collect();
-        
+
         Ok(ServerInfo {
             os: lines.first().unwrap_or(&"Unknown").to_string(),
             hostname: lines.get(1).unwrap_or(&"Unknown").to_string(),
@@ -158,10 +170,10 @@ impl SshClient {
     }
 
     pub fn execute_command(
-        &self, 
-        server: &Server, 
-        command: &str, 
-        timeout_secs: Option<u64>
+        &self,
+        server: &Server,
+        command: &str,
+        timeout_secs: Option<u64>,
     ) -> Result<CommandOutput> {
         let cancel_flag = Arc::new(AtomicBool::new(false));
         // execute_command uses timeout (for conditions, quick checks)
@@ -177,7 +189,13 @@ impl SshClient {
     ) -> Result<CommandOutput> {
         // Use timeout if provided, otherwise wait indefinitely
         // For script steps, timeout is optional safety net
-        self.execute_command_internal(server, command, timeout_secs, cancel_flag, timeout_secs.is_some())
+        self.execute_command_internal(
+            server,
+            command,
+            timeout_secs,
+            cancel_flag,
+            timeout_secs.is_some(),
+        )
     }
 
     fn execute_command_internal(
@@ -194,10 +212,12 @@ impl SshClient {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
         authenticate_session(&session, server, &self.credential_store)?;
 
-        let mut channel = session.channel_session()
+        let mut channel = session
+            .channel_session()
             .map_err(|e| AppError::ConnectionFailed(format!("Failed to open channel: {}", e)))?;
-        
-        channel.exec(command)
+
+        channel
+            .exec(command)
             .map_err(|e| AppError::CommandFailed(format!("Failed to execute command: {}", e)))?;
 
         session.set_blocking(false);
@@ -211,7 +231,9 @@ impl SshClient {
             if cancel_flag.load(Ordering::Relaxed) {
                 channel.send_eof().ok();
                 channel.close().ok();
-                return Err(AppError::CommandFailed("Command cancelled by user".to_string()));
+                return Err(AppError::CommandFailed(
+                    "Command cancelled by user".to_string(),
+                ));
             }
 
             // Check timeout only if use_timeout is true
@@ -229,7 +251,10 @@ impl SshClient {
                 Ok(n) => stdout.extend_from_slice(&buf[..n]),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(e) => {
-                    return Err(AppError::CommandFailed(format!("Failed to read stdout: {}", e)));
+                    return Err(AppError::CommandFailed(format!(
+                        "Failed to read stdout: {}",
+                        e
+                    )));
                 }
             }
 
@@ -238,7 +263,10 @@ impl SshClient {
                 Ok(n) => stderr.extend_from_slice(&buf[..n]),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(e) => {
-                    return Err(AppError::CommandFailed(format!("Failed to read stderr: {}", e)));
+                    return Err(AppError::CommandFailed(format!(
+                        "Failed to read stderr: {}",
+                        e
+                    )));
                 }
             }
 
@@ -251,10 +279,12 @@ impl SshClient {
 
         session.set_blocking(true);
 
-        channel.wait_close()
+        channel
+            .wait_close()
             .map_err(|e| AppError::CommandFailed(format!("Failed to close channel: {}", e)))?;
 
-        let exit_code = channel.exit_status()
+        let exit_code = channel
+            .exit_status()
             .map_err(|e| AppError::CommandFailed(format!("Failed to get exit status: {}", e)))?;
 
         let duration = start.elapsed();
