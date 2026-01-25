@@ -3,6 +3,7 @@ use ssh_key::{LineEnding, PrivateKey};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::Path;
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 /// Supported key types that can be converted
