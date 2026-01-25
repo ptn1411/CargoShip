@@ -21,7 +21,7 @@ impl TemplateLibrary {
     /// Create a new template library with all built-in templates
     pub fn new() -> Self {
         let mut templates = HashMap::new();
-        
+
         // Add all built-in templates
         let builtin = vec![
             Self::nodejs_template(),
@@ -39,12 +39,14 @@ impl TemplateLibrary {
             Self::nginx_vhost_template(),
             Self::mysql_database_template(),
             Self::redis_config_template(),
+            Self::clawdbot_install_template(),
+            Self::sys_swap_template(),
         ];
-        
+
         for template in builtin {
             templates.insert(template.name.clone(), template);
         }
-        
+
         Self { templates }
     }
 
@@ -55,12 +57,15 @@ impl TemplateLibrary {
 
     /// List all available templates
     pub fn list_templates(&self) -> Vec<TemplateInfo> {
-        self.templates.values().map(|t| TemplateInfo {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            category: Self::get_category(&t.name),
-            variables: t.variables.clone(),
-        }).collect()
+        self.templates
+            .values()
+            .map(|t| TemplateInfo {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                category: Self::get_category(&t.name),
+                variables: t.variables.clone(),
+            })
+            .collect()
     }
 
     /// Create a new script from a template
@@ -73,14 +78,22 @@ impl TemplateLibrary {
                 name: format!("{} - New", template.name),
                 description: template.description.clone(),
                 variables: template.variables.clone(),
-                steps: template.steps.iter().map(|s| Step {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    ..s.clone()
-                }).collect(),
-                rollback_steps: template.rollback_steps.iter().map(|s| Step {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    ..s.clone()
-                }).collect(),
+                steps: template
+                    .steps
+                    .iter()
+                    .map(|s| Step {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        ..s.clone()
+                    })
+                    .collect(),
+                rollback_steps: template
+                    .rollback_steps
+                    .iter()
+                    .map(|s| Step {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        ..s.clone()
+                    })
+                    .collect(),
                 tags: template.tags.clone(),
                 is_template: false,
                 created_at: now,
@@ -91,16 +104,21 @@ impl TemplateLibrary {
 
     fn get_category(name: &str) -> String {
         match name {
-            "Node.js Deployment" | "PHP Deployment" | "Python Deployment" => "Application".to_string(),
+            "Node.js Deployment" | "PHP Deployment" | "Python Deployment" => {
+                "Application".to_string()
+            }
             "Docker Compose Deployment" => "Container".to_string(),
-            "Static Site (Nginx)" | "Install Nginx" | "Nginx Virtual Host" => "Web Server".to_string(),
-            "Database Migration" | "Install MySQL" | "MySQL Create Database" => "Database".to_string(),
+            "Static Site (Nginx)" | "Install Nginx" | "Nginx Virtual Host" => {
+                "Web Server".to_string()
+            }
+            "Database Migration" | "Install MySQL" | "MySQL Create Database" => {
+                "Database".to_string()
+            }
             "Install Redis" | "Redis Configuration" => "Cache".to_string(),
             "SSL Certificate Setup" | "Firewall Configuration" => "Security".to_string(),
             _ => "Other".to_string(),
         }
     }
-
 
     /// Node.js deployment template
     /// Requirements: 3.1
@@ -166,9 +184,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-2".to_string(),
                     name: "Install dependencies".to_string(),
-                    commands: vec![
-                        "npm ci --production".to_string(),
-                    ],
+                    commands: vec!["npm ci --production".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::from([("NODE_ENV".to_string(), "{{node_env}}".to_string())]),
                     condition: None,
@@ -178,9 +194,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-3".to_string(),
                     name: "Build application".to_string(),
-                    commands: vec![
-                        "npm run build".to_string(),
-                    ],
+                    commands: vec!["npm run build".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::from([("NODE_ENV".to_string(), "{{node_env}}".to_string())]),
                     condition: None,
@@ -191,7 +205,8 @@ impl TemplateLibrary {
                     id: "step-4".to_string(),
                     name: "Restart application".to_string(),
                     commands: vec![
-                        "pm2 restart {{app_name}} || pm2 start npm --name {{app_name}} -- start".to_string(),
+                        "pm2 restart {{app_name}} || pm2 start npm --name {{app_name}} -- start"
+                            .to_string(),
                         "pm2 save".to_string(),
                     ],
                     working_dir: Some("{{app_dir}}".to_string()),
@@ -201,30 +216,31 @@ impl TemplateLibrary {
                     timeout: Some(120),
                 },
             ],
-            rollback_steps: vec![
-                Step {
-                    id: "rollback-1".to_string(),
-                    name: "Revert to previous commit".to_string(),
-                    commands: vec![
-                        "git checkout HEAD~1".to_string(),
-                        "npm ci --production".to_string(),
-                        "npm run build".to_string(),
-                        "pm2 restart {{app_name}}".to_string(),
-                    ],
-                    working_dir: Some("{{app_dir}}".to_string()),
-                    env: HashMap::new(),
-                    condition: None,
-                    on_error: OnError::Abort,
-                    timeout: Some(600),
-                },
+            rollback_steps: vec![Step {
+                id: "rollback-1".to_string(),
+                name: "Revert to previous commit".to_string(),
+                commands: vec![
+                    "git checkout HEAD~1".to_string(),
+                    "npm ci --production".to_string(),
+                    "npm run build".to_string(),
+                    "pm2 restart {{app_name}}".to_string(),
+                ],
+                working_dir: Some("{{app_dir}}".to_string()),
+                env: HashMap::new(),
+                condition: None,
+                on_error: OnError::Abort,
+                timeout: Some(600),
+            }],
+            tags: vec![
+                "nodejs".to_string(),
+                "pm2".to_string(),
+                "application".to_string(),
             ],
-            tags: vec!["nodejs".to_string(), "pm2".to_string(), "application".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
         }
     }
-
 
     /// Docker Compose deployment template
     /// Requirements: 3.1
@@ -289,9 +305,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-2".to_string(),
                     name: "Pull Docker images".to_string(),
-                    commands: vec![
-                        "docker-compose -f {{compose_file}} pull".to_string(),
-                    ],
+                    commands: vec!["docker-compose -f {{compose_file}} pull".to_string()],
                     working_dir: Some("{{project_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -302,7 +316,7 @@ impl TemplateLibrary {
                     id: "step-3".to_string(),
                     name: "Build images".to_string(),
                     commands: vec![
-                        "docker-compose -f {{compose_file}} build --no-cache".to_string(),
+                        "docker-compose -f {{compose_file}} build --no-cache".to_string()
                     ],
                     working_dir: Some("{{project_dir}}".to_string()),
                     env: HashMap::new(),
@@ -314,7 +328,7 @@ impl TemplateLibrary {
                     id: "step-4".to_string(),
                     name: "Deploy with zero-downtime".to_string(),
                     commands: vec![
-                        "docker-compose -f {{compose_file}} up -d --remove-orphans".to_string(),
+                        "docker-compose -f {{compose_file}} up -d --remove-orphans".to_string()
                     ],
                     working_dir: Some("{{project_dir}}".to_string()),
                     env: HashMap::new(),
@@ -325,9 +339,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-5".to_string(),
                     name: "Cleanup old images".to_string(),
-                    commands: vec![
-                        "docker image prune -f".to_string(),
-                    ],
+                    commands: vec!["docker image prune -f".to_string()],
                     working_dir: Some("{{project_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -335,28 +347,29 @@ impl TemplateLibrary {
                     timeout: Some(120),
                 },
             ],
-            rollback_steps: vec![
-                Step {
-                    id: "rollback-1".to_string(),
-                    name: "Rollback to previous version".to_string(),
-                    commands: vec![
-                        "git checkout HEAD~1".to_string(),
-                        "docker-compose -f {{compose_file}} up -d --remove-orphans".to_string(),
-                    ],
-                    working_dir: Some("{{project_dir}}".to_string()),
-                    env: HashMap::new(),
-                    condition: None,
-                    on_error: OnError::Abort,
-                    timeout: Some(300),
-                },
+            rollback_steps: vec![Step {
+                id: "rollback-1".to_string(),
+                name: "Rollback to previous version".to_string(),
+                commands: vec![
+                    "git checkout HEAD~1".to_string(),
+                    "docker-compose -f {{compose_file}} up -d --remove-orphans".to_string(),
+                ],
+                working_dir: Some("{{project_dir}}".to_string()),
+                env: HashMap::new(),
+                condition: None,
+                on_error: OnError::Abort,
+                timeout: Some(300),
+            }],
+            tags: vec![
+                "docker".to_string(),
+                "compose".to_string(),
+                "container".to_string(),
             ],
-            tags: vec!["docker".to_string(), "compose".to_string(), "container".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
         }
     }
-
 
     /// PHP deployment template
     /// Requirements: 3.1
@@ -407,9 +420,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-1".to_string(),
                     name: "Enable maintenance mode".to_string(),
-                    commands: vec![
-                        "touch {{app_dir}}/storage/framework/down".to_string(),
-                    ],
+                    commands: vec!["touch {{app_dir}}/storage/framework/down".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -433,9 +444,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-3".to_string(),
                     name: "Install Composer dependencies".to_string(),
-                    commands: vec![
-                        "composer install --no-dev --optimize-autoloader".to_string(),
-                    ],
+                    commands: vec!["composer install --no-dev --optimize-autoloader".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -445,9 +454,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-4".to_string(),
                     name: "Run database migrations".to_string(),
-                    commands: vec![
-                        "php artisan migrate --force".to_string(),
-                    ],
+                    commands: vec!["php artisan migrate --force".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -473,7 +480,8 @@ impl TemplateLibrary {
                     name: "Set permissions".to_string(),
                     commands: vec![
                         "chown -R {{web_user}}:{{web_user}} {{app_dir}}/storage".to_string(),
-                        "chown -R {{web_user}}:{{web_user}} {{app_dir}}/bootstrap/cache".to_string(),
+                        "chown -R {{web_user}}:{{web_user}} {{app_dir}}/bootstrap/cache"
+                            .to_string(),
                         "chmod -R 775 {{app_dir}}/storage".to_string(),
                     ],
                     working_dir: Some("{{app_dir}}".to_string()),
@@ -485,9 +493,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-7".to_string(),
                     name: "Restart PHP-FPM".to_string(),
-                    commands: vec![
-                        "systemctl restart {{php_fpm_service}}".to_string(),
-                    ],
+                    commands: vec!["systemctl restart {{php_fpm_service}}".to_string()],
                     working_dir: None,
                     env: HashMap::new(),
                     condition: None,
@@ -497,9 +503,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-8".to_string(),
                     name: "Disable maintenance mode".to_string(),
-                    commands: vec![
-                        "rm -f {{app_dir}}/storage/framework/down".to_string(),
-                    ],
+                    commands: vec!["rm -f {{app_dir}}/storage/framework/down".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -507,32 +511,33 @@ impl TemplateLibrary {
                     timeout: Some(30),
                 },
             ],
-            rollback_steps: vec![
-                Step {
-                    id: "rollback-1".to_string(),
-                    name: "Revert to previous commit".to_string(),
-                    commands: vec![
-                        "git checkout HEAD~1".to_string(),
-                        "composer install --no-dev --optimize-autoloader".to_string(),
-                        "php artisan migrate:rollback --force".to_string(),
-                        "php artisan config:cache".to_string(),
-                        "systemctl restart {{php_fpm_service}}".to_string(),
-                        "rm -f {{app_dir}}/storage/framework/down".to_string(),
-                    ],
-                    working_dir: Some("{{app_dir}}".to_string()),
-                    env: HashMap::new(),
-                    condition: None,
-                    on_error: OnError::Abort,
-                    timeout: Some(600),
-                },
+            rollback_steps: vec![Step {
+                id: "rollback-1".to_string(),
+                name: "Revert to previous commit".to_string(),
+                commands: vec![
+                    "git checkout HEAD~1".to_string(),
+                    "composer install --no-dev --optimize-autoloader".to_string(),
+                    "php artisan migrate:rollback --force".to_string(),
+                    "php artisan config:cache".to_string(),
+                    "systemctl restart {{php_fpm_service}}".to_string(),
+                    "rm -f {{app_dir}}/storage/framework/down".to_string(),
+                ],
+                working_dir: Some("{{app_dir}}".to_string()),
+                env: HashMap::new(),
+                condition: None,
+                on_error: OnError::Abort,
+                timeout: Some(600),
+            }],
+            tags: vec![
+                "php".to_string(),
+                "laravel".to_string(),
+                "composer".to_string(),
             ],
-            tags: vec!["php".to_string(), "laravel".to_string(), "composer".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
         }
     }
-
 
     /// Python deployment template
     /// Requirements: 3.1
@@ -617,9 +622,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-3".to_string(),
                     name: "Install dependencies".to_string(),
-                    commands: vec![
-                        "{{venv_dir}}/bin/pip install -r requirements.txt".to_string(),
-                    ],
+                    commands: vec!["{{venv_dir}}/bin/pip install -r requirements.txt".to_string()],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: None,
@@ -630,7 +633,7 @@ impl TemplateLibrary {
                     id: "step-4".to_string(),
                     name: "Run database migrations".to_string(),
                     commands: vec![
-                        "{{venv_dir}}/bin/python manage.py migrate --noinput".to_string(),
+                        "{{venv_dir}}/bin/python manage.py migrate --noinput".to_string()
                     ],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
@@ -642,7 +645,7 @@ impl TemplateLibrary {
                     id: "step-5".to_string(),
                     name: "Collect static files".to_string(),
                     commands: vec![
-                        "{{venv_dir}}/bin/python manage.py collectstatic --noinput".to_string(),
+                        "{{venv_dir}}/bin/python manage.py collectstatic --noinput".to_string()
                     ],
                     working_dir: Some("{{app_dir}}".to_string()),
                     env: HashMap::new(),
@@ -653,9 +656,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-6".to_string(),
                     name: "Restart application".to_string(),
-                    commands: vec![
-                        "systemctl restart {{app_name}}".to_string(),
-                    ],
+                    commands: vec!["systemctl restart {{app_name}}".to_string()],
                     working_dir: None,
                     env: HashMap::new(),
                     condition: None,
@@ -663,30 +664,31 @@ impl TemplateLibrary {
                     timeout: Some(60),
                 },
             ],
-            rollback_steps: vec![
-                Step {
-                    id: "rollback-1".to_string(),
-                    name: "Revert to previous commit".to_string(),
-                    commands: vec![
-                        "git checkout HEAD~1".to_string(),
-                        "{{venv_dir}}/bin/pip install -r requirements.txt".to_string(),
-                        "{{venv_dir}}/bin/python manage.py migrate --noinput".to_string(),
-                        "systemctl restart {{app_name}}".to_string(),
-                    ],
-                    working_dir: Some("{{app_dir}}".to_string()),
-                    env: HashMap::new(),
-                    condition: None,
-                    on_error: OnError::Abort,
-                    timeout: Some(600),
-                },
+            rollback_steps: vec![Step {
+                id: "rollback-1".to_string(),
+                name: "Revert to previous commit".to_string(),
+                commands: vec![
+                    "git checkout HEAD~1".to_string(),
+                    "{{venv_dir}}/bin/pip install -r requirements.txt".to_string(),
+                    "{{venv_dir}}/bin/python manage.py migrate --noinput".to_string(),
+                    "systemctl restart {{app_name}}".to_string(),
+                ],
+                working_dir: Some("{{app_dir}}".to_string()),
+                env: HashMap::new(),
+                condition: None,
+                on_error: OnError::Abort,
+                timeout: Some(600),
+            }],
+            tags: vec![
+                "python".to_string(),
+                "django".to_string(),
+                "gunicorn".to_string(),
             ],
-            tags: vec!["python".to_string(), "django".to_string(), "gunicorn".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
         }
     }
-
 
     /// Static site (Nginx) deployment template
     /// Requirements: 3.1
@@ -758,9 +760,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-2".to_string(),
                     name: "Install dependencies".to_string(),
-                    commands: vec![
-                        "npm ci".to_string(),
-                    ],
+                    commands: vec!["npm ci".to_string()],
                     working_dir: Some("{{site_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: Some("test -f package.json".to_string()),
@@ -770,9 +770,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-3".to_string(),
                     name: "Build site".to_string(),
-                    commands: vec![
-                        "{{build_command}}".to_string(),
-                    ],
+                    commands: vec!["{{build_command}}".to_string()],
                     working_dir: Some("{{site_dir}}".to_string()),
                     env: HashMap::new(),
                     condition: Some("test -n \"{{build_command}}\"".to_string()),
@@ -796,9 +794,7 @@ impl TemplateLibrary {
                 Step {
                     id: "step-5".to_string(),
                     name: "Reload Nginx".to_string(),
-                    commands: vec![
-                        "nginx -t && systemctl reload nginx".to_string(),
-                    ],
+                    commands: vec!["nginx -t && systemctl reload nginx".to_string()],
                     working_dir: None,
                     env: HashMap::new(),
                     condition: None,
@@ -806,29 +802,26 @@ impl TemplateLibrary {
                     timeout: Some(60),
                 },
             ],
-            rollback_steps: vec![
-                Step {
-                    id: "rollback-1".to_string(),
-                    name: "Revert to previous commit".to_string(),
-                    commands: vec![
-                        "git checkout HEAD~1".to_string(),
-                        "chown -R {{web_user}}:{{web_user}} {{site_dir}}".to_string(),
-                        "systemctl reload nginx".to_string(),
-                    ],
-                    working_dir: Some("{{site_dir}}".to_string()),
-                    env: HashMap::new(),
-                    condition: None,
-                    on_error: OnError::Abort,
-                    timeout: Some(300),
-                },
-            ],
+            rollback_steps: vec![Step {
+                id: "rollback-1".to_string(),
+                name: "Revert to previous commit".to_string(),
+                commands: vec![
+                    "git checkout HEAD~1".to_string(),
+                    "chown -R {{web_user}}:{{web_user}} {{site_dir}}".to_string(),
+                    "systemctl reload nginx".to_string(),
+                ],
+                working_dir: Some("{{site_dir}}".to_string()),
+                env: HashMap::new(),
+                condition: None,
+                on_error: OnError::Abort,
+                timeout: Some(300),
+            }],
             tags: vec!["static".to_string(), "nginx".to_string(), "web".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,
         }
     }
-
 
     /// Database migration template
     /// Requirements: 3.1
@@ -966,7 +959,6 @@ impl TemplateLibrary {
         }
     }
 
-
     /// SSL certificate setup template
     /// Requirements: 3.1
     fn ssl_setup_template() -> DeploymentScript {
@@ -1091,7 +1083,6 @@ impl TemplateLibrary {
             updated_at: now,
         }
     }
-
 
     /// Firewall configuration template
     /// Requirements: 3.1
@@ -2110,6 +2101,231 @@ EOF"#.to_string(),
             ],
             rollback_steps: vec![],
             tags: vec!["redis".to_string(), "config".to_string(), "cache".to_string()],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Install Clawdbot template
+    fn clawdbot_install_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-clawdbot-install".to_string(),
+            name: "Install Clawdbot".to_string(),
+            description: "Install Clawdbot setup and dependencies".to_string(),
+            variables: vec![],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Update package list".to_string(),
+                    commands: vec!["sudo apt-get update".to_string()],
+                    working_dir: None,
+                    env: HashMap::from([(
+                        "DEBIAN_FRONTEND".to_string(),
+                        "noninteractive".to_string(),
+                    )]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Install dependencies".to_string(),
+                    commands: vec![
+                        "sudo apt-get install -y git curl jq ca-certificates openssl".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::from([(
+                        "DEBIAN_FRONTEND".to_string(),
+                        "noninteractive".to_string(),
+                    )]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Setup Node.js repository".to_string(),
+                    commands: vec![
+                        "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
+                            .to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(300),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Install Node.js".to_string(),
+                    commands: vec!["sudo apt-get install -y nodejs".to_string()],
+                    working_dir: None,
+                    env: HashMap::from([(
+                        "DEBIAN_FRONTEND".to_string(),
+                        "noninteractive".to_string(),
+                    )]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(600),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Install build tools".to_string(),
+                    commands: vec!["sudo apt-get install -y build-essential python3".to_string()],
+                    working_dir: None,
+                    env: HashMap::from([(
+                        "DEBIAN_FRONTEND".to_string(),
+                        "noninteractive".to_string(),
+                    )]),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(600),
+                },
+                Step {
+                    id: "step-6".to_string(),
+                    name: "Install Clawdbot".to_string(),
+                    commands: vec!["npm i -g clawdbot@latest".to_string()],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(600),
+                },
+                Step {
+                    id: "step-7".to_string(),
+                    name: "Final update".to_string(),
+                    commands: vec!["sudo apt-get update".to_string()],
+                    working_dir: None,
+                    env: HashMap::from([(
+                        "DEBIAN_FRONTEND".to_string(),
+                        "noninteractive".to_string(),
+                    )]),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(300),
+                },
+            ],
+            rollback_steps: vec![],
+            tags: vec![
+                "clawdbot".to_string(),
+                "install".to_string(),
+                "nodejs".to_string(),
+            ],
+            is_template: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// System Swap Configuration template
+    fn sys_swap_template() -> DeploymentScript {
+        let now = Utc::now();
+        DeploymentScript {
+            id: "template-sys-swap".to_string(),
+            name: "System Swap".to_string(),
+            description: "Create and configure swap memory".to_string(),
+            variables: vec![
+                Variable {
+                    name: "swap_size".to_string(),
+                    description: "Swap size (e.g., 4G)".to_string(),
+                    default_value: Some("4G".to_string()),
+                    required: true,
+                    var_type: VariableType::String,
+                },
+                Variable {
+                    name: "swappiness".to_string(),
+                    description: "Swappiness value (0-100)".to_string(),
+                    default_value: Some("10".to_string()),
+                    required: false,
+                    var_type: VariableType::String,
+                },
+            ],
+            steps: vec![
+                Step {
+                    id: "step-1".to_string(),
+                    name: "Create swap file".to_string(),
+                    commands: vec![
+                        "sudo fallocate -l {{swap_size}} /swapfile".to_string(),
+                        "sudo chmod 600 /swapfile".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-2".to_string(),
+                    name: "Enable swap".to_string(),
+                    commands: vec![
+                        "sudo mkswap /swapfile".to_string(),
+                        "sudo swapon /swapfile".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+                Step {
+                    id: "step-3".to_string(),
+                    name: "Persist swap settings".to_string(),
+                    commands: vec![
+                        "grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-4".to_string(),
+                    name: "Configure swappiness".to_string(),
+                    commands: vec![
+                        "sudo sysctl vm.swappiness={{swappiness}}".to_string(),
+                        "grep -q 'vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness={{swappiness}}' | sudo tee -a /etc/sysctl.conf".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+                Step {
+                    id: "step-5".to_string(),
+                    name: "Verify swap".to_string(),
+                    commands: vec![
+                        "free -h".to_string(),
+                        "swapon --show".to_string(),
+                        "cat /proc/sys/vm/swappiness".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Continue,
+                    timeout: Some(30),
+                },
+            ],
+            rollback_steps: vec![
+                Step {
+                    id: "rollback-1".to_string(),
+                    name: "Disable and remove swap".to_string(),
+                    commands: vec![
+                        "sudo swapoff /swapfile".to_string(),
+                        "sudo rm -f /swapfile".to_string(),
+                        "sudo sed -i '/\\/swapfile/d' /etc/fstab".to_string(),
+                    ],
+                    working_dir: None,
+                    env: HashMap::new(),
+                    condition: None,
+                    on_error: OnError::Abort,
+                    timeout: Some(60),
+                },
+            ],
+            tags: vec!["system".to_string(), "swap".to_string(), "memory".to_string()],
             is_template: true,
             created_at: now,
             updated_at: now,

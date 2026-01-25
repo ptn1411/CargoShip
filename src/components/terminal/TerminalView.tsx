@@ -1,13 +1,18 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import { SearchAddon } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { terminalApi, eventApi } from "../../lib/tauri";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { eventApi, Snippet, terminalApi } from "../../lib/tauri";
 import { useAppStore } from "../../store";
-import { TerminalSearch, SearchOptions } from "./TerminalSearch";
-import { TerminalSettingsData, getTerminalThemeColors, DEFAULT_TERMINAL_SETTINGS } from "./TerminalSettings";
+import { SearchOptions, TerminalSearch } from "./TerminalSearch";
+import {
+  DEFAULT_TERMINAL_SETTINGS,
+  getTerminalThemeColors,
+  TerminalSettingsData,
+} from "./TerminalSettings";
+import { TerminalSuggestions } from "./TerminalSuggestions";
 
 interface TerminalViewProps {
   sessionId: string;
@@ -16,38 +21,151 @@ interface TerminalViewProps {
   terminalSettings?: TerminalSettingsData;
 }
 
-// Global map to track which sessions have active listeners
-const activeListeners = new Map<string, { unlisten: () => void; terminal: Terminal }>();
+const activeListeners = new Map<
+  string,
+  { unlisten: () => void; terminal: Terminal }
+>();
 
-export function TerminalView({ sessionId, isActive, alwaysVisible = false, terminalSettings }: TerminalViewProps) {
+export function TerminalView({
+  sessionId,
+  isActive,
+  alwaysVisible = false,
+  terminalSettings,
+}: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const mountedRef = useRef(false);
-  
+
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [matchCount, setMatchCount] = useState(0);
   const [currentMatch, setCurrentMatch] = useState(0);
-  
+
+  // Suggestions state
+  const snippets = useAppStore((state) => state.snippets);
+  const [suggestions, setSuggestions] = useState<Snippet[]>([]);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(0);
+  const [suggestionPosition, setSuggestionPosition] = useState({
+    top: 0,
+    left: 0,
+  });
+  const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
+  const [currentInput, setCurrentInput] = useState("");
+
   const theme = useAppStore((state) => state.theme);
   const resizeTerminal = useAppStore((state) => state.resizeTerminal);
 
-  // Use terminal settings or fall back to defaults
+  const isSuggestionsOpenRef = useRef(isSuggestionsOpen);
+  const selectedIndexRef = useRef(selectedSuggestionIndex);
+  const suggestionsRef = useRef(suggestions);
+  const snippetsRef = useRef(snippets);
+  const currentInputRef = useRef(currentInput);
+
+  useEffect(() => {
+    isSuggestionsOpenRef.current = isSuggestionsOpen;
+    selectedIndexRef.current = selectedSuggestionIndex;
+    suggestionsRef.current = suggestions;
+    currentInputRef.current = currentInput;
+  }, [isSuggestionsOpen, selectedSuggestionIndex, suggestions, currentInput]);
+
+  useEffect(() => {
+    snippetsRef.current = snippets;
+  }, [snippets]);
+
   const settings = terminalSettings || DEFAULT_TERMINAL_SETTINGS;
 
-  // Get theme colors based on terminal settings or system theme
   const getThemeColors = useCallback(() => {
     if (terminalSettings) {
       return getTerminalThemeColors(terminalSettings.theme);
     }
-    
-    // Fall back to system theme
-    const isDark = theme === "dark" || 
-      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    
+    const isDark =
+      theme === "dark" ||
+      (theme === "system" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches);
     return getTerminalThemeColors(isDark ? "dark" : "light");
   }, [theme, terminalSettings]);
+
+  // Function to check and update suggestions
+  const checkAndUpdateSuggestions = useCallback(() => {
+    if (!terminalRef.current || !containerRef.current) return;
+
+    const terminal = terminalRef.current;
+    const buffer = terminal.buffer.active;
+    const cursorY = buffer.cursorY;
+    const cursorX = buffer.cursorX;
+
+    // Get current line up to cursor
+    const line =
+      buffer.getLine(cursorY + buffer.baseY)?.translateToString(true) || "";
+    const lineUpToCursor = line.substring(0, cursorX);
+
+    // Extract the last word (current command being typed)
+    const match = lineUpToCursor.match(/(\S+)$/);
+    const lastWord = match ? match[1] : "";
+
+    setCurrentInput(lastWord);
+
+    if (lastWord.length < 2) {
+      setIsSuggestionsOpen(false);
+      return;
+    }
+
+    // Find matching snippets
+    const matches = snippetsRef.current
+      .filter((s) => {
+        const searchLower = lastWord.toLowerCase();
+        return (
+          s.name.toLowerCase().includes(searchLower) ||
+          s.command.toLowerCase().startsWith(searchLower)
+        );
+      })
+      .slice(0, 10);
+
+    if (matches.length > 0) {
+      setSuggestions(matches);
+      setSelectedSuggestionIndex(0);
+
+      // Calculate position with a simpler, more reliable method
+      try {
+        const rect = containerRef.current.getBoundingClientRect();
+        const cols = terminal.cols;
+        const rows = terminal.rows;
+
+        // Calculate cell size from container dimensions
+        const cellWidth = rect.width / cols;
+        const cellHeight = rect.height / rows;
+
+        // Position below cursor with some offset
+        const top = rect.top + (cursorY + 1) * cellHeight + 5;
+        const left = rect.left + cursorX * cellWidth;
+
+        console.log("Position calculated:", {
+          top,
+          left,
+          cursorX,
+          cursorY,
+          cellWidth: cellWidth.toFixed(2),
+          cellHeight: cellHeight.toFixed(2),
+          cols,
+          rows,
+          containerWidth: rect.width,
+          containerHeight: rect.height,
+        });
+
+        setSuggestionPosition({ top, left });
+      } catch (e) {
+        console.error("Error calculating suggestion position:", e);
+        // Fallback: show near top-left of terminal
+        const rect = containerRef.current.getBoundingClientRect();
+        setSuggestionPosition({ top: rect.top + 50, left: rect.left + 50 });
+      }
+
+      setIsSuggestionsOpen(true);
+    } else {
+      setIsSuggestionsOpen(false);
+    }
+  }, []);
 
   // Search handlers
   const handleSearch = useCallback((term: string, options: SearchOptions) => {
@@ -57,7 +175,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
       return;
     }
 
-    // Clear previous decorations
     searchAddonRef.current.clearDecorations();
 
     if (term.length === 0) {
@@ -66,7 +183,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
       return;
     }
 
-    // Find all matches and highlight
     const found = searchAddonRef.current.findNext(term, {
       caseSensitive: options.caseSensitive,
       regex: options.regex,
@@ -82,7 +198,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
     });
 
     if (found) {
-      // Count matches by searching through buffer
       let count = 0;
       const buffer = terminalRef.current?.buffer.active;
       if (buffer) {
@@ -92,7 +207,7 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
             ? new RegExp(term, options.caseSensitive ? "g" : "gi")
             : new RegExp(
                 term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-                options.caseSensitive ? "g" : "gi"
+                options.caseSensitive ? "g" : "gi",
               );
           const matches = line.match(searchRegex);
           if (matches) {
@@ -129,19 +244,41 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
     }
     setMatchCount(0);
     setCurrentMatch(0);
-    // Focus terminal after closing search
     terminalRef.current?.focus();
   }, []);
+
+  // Handle snippet selection
+  const handleSelectSnippet = useCallback(
+    (snippet: Snippet) => {
+      if (!terminalRef.current) return;
+
+      const terminal = terminalRef.current;
+      const buffer = terminal.buffer.active;
+      const cursorX = buffer.cursorX;
+
+      // Calculate how many backspaces we need
+      const inputLength = currentInputRef.current.length;
+
+      // Send backspaces to clear current input
+      const backspaces = "\x7F".repeat(inputLength);
+      const commandToSend = backspaces + snippet.command;
+
+      const bytes = Array.from(new TextEncoder().encode(commandToSend));
+      terminalApi.write(sessionId, bytes).catch(console.error);
+
+      setIsSuggestionsOpen(false);
+      setCurrentInput("");
+      terminal.focus();
+    },
+    [sessionId],
+  );
 
   // Initialize terminal
   useEffect(() => {
     if (!containerRef.current) return;
-    
-    // Prevent double initialization in StrictMode
     if (mountedRef.current) return;
     mountedRef.current = true;
 
-    // Clean up any existing listener for this session
     const existing = activeListeners.get(sessionId);
     if (existing) {
       existing.unlisten();
@@ -174,102 +311,46 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
-    // Block default paste event on container to prevent duplicate
     const handlePaste = (e: ClipboardEvent) => {
       e.preventDefault();
-      const text = e.clipboardData?.getData('text');
+      const text = e.clipboardData?.getData("text");
       if (text) {
         const bytes = Array.from(new TextEncoder().encode(text));
         terminalApi.write(sessionId, bytes).catch(console.error);
       }
     };
-    containerRef.current.addEventListener('paste', handlePaste);
+    containerRef.current.addEventListener("paste", handlePaste);
 
-    // Handle copy with Ctrl+C when text is selected
-    terminal.attachCustomKeyEventHandler((event) => {
-      // Only handle keydown events
-      if (event.type !== 'keydown') return true;
-
-      // Ctrl+F = open search
-      if (event.ctrlKey && !event.shiftKey && event.key === 'f') {
-        event.preventDefault();
-        setIsSearchOpen(true);
-        return false;
-      }
-
-      // Ctrl+C with selection = copy
-      if (event.ctrlKey && !event.shiftKey && event.key === 'c' && terminal.hasSelection()) {
-        event.preventDefault();
-        const selection = terminal.getSelection();
-        navigator.clipboard.writeText(selection);
-        return false; // Prevent default (don't send SIGINT)
-      }
-      // Ctrl+V = paste (handled by paste event listener above)
-      if (event.ctrlKey && !event.shiftKey && event.key === 'v') {
-        // Don't prevent - let paste event handle it
-        return true;
-      }
-      // Ctrl+Shift+C = copy (alternative)
-      if (event.ctrlKey && event.shiftKey && event.key === 'C') {
-        event.preventDefault();
-        const selection = terminal.getSelection();
-        if (selection) {
-          navigator.clipboard.writeText(selection);
-        }
-        return false;
-      }
-      // Ctrl+Shift+V = paste (alternative - manual handling)
-      if (event.ctrlKey && event.shiftKey && event.key === 'V') {
-        event.preventDefault();
-        navigator.clipboard.readText().then((text) => {
-          if (text) {
-            const bytes = Array.from(new TextEncoder().encode(text));
-            terminalApi.write(sessionId, bytes).catch(console.error);
-          }
-        });
-        return false;
-      }
-      return true; // Let other keys pass through
-    });
-
-    // Handle terminal input
     terminal.onData((data) => {
       const bytes = Array.from(new TextEncoder().encode(data));
       terminalApi.write(sessionId, bytes).catch(console.error);
     });
 
-    // Handle terminal resize
     terminal.onResize(({ cols, rows }) => {
       resizeTerminal(sessionId, cols, rows);
     });
 
-    // Start streaming terminal output
     terminalApi.startStream(sessionId).catch(console.error);
 
-    // Listen for terminal output events
-    eventApi.onTerminalOutput((payload) => {
-      if (payload.session_id === sessionId && terminalRef.current) {
-        const text = new TextDecoder().decode(new Uint8Array(payload.data));
-        terminalRef.current.write(text);
-      }
-    }).then((unlisten) => {
-      // Store the listener so we can clean it up
-      activeListeners.set(sessionId, { unlisten, terminal });
-    });
+    eventApi
+      .onTerminalOutput((payload) => {
+        if (payload.session_id === sessionId && terminalRef.current) {
+          const text = new TextDecoder().decode(new Uint8Array(payload.data));
+          terminalRef.current.write(text);
+        }
+      })
+      .then((unlisten) => {
+        activeListeners.set(sessionId, { unlisten, terminal });
+      });
 
-    // Initial resize notification
     const { cols, rows } = terminal;
     resizeTerminal(sessionId, cols, rows);
 
-    // Store container ref for cleanup
     const container = containerRef.current;
 
     return () => {
       mountedRef.current = false;
-      
-      // Cleanup paste listener
-      container?.removeEventListener('paste', handlePaste);
-      
+      container?.removeEventListener("paste", handlePaste);
       const listener = activeListeners.get(sessionId);
       if (listener) {
         listener.unlisten();
@@ -282,6 +363,83 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
     };
   }, [sessionId, getThemeColors, resizeTerminal, settings]);
 
+  // Attach key handler with access to fresh state via refs
+  useEffect(() => {
+    if (!terminalRef.current) return;
+
+    const terminal = terminalRef.current;
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.type !== "keydown") return true;
+
+      // Suggestions navigation
+      if (isSuggestionsOpenRef.current) {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setSelectedSuggestionIndex((prev) => Math.max(0, prev - 1));
+          return false;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setSelectedSuggestionIndex((prev) =>
+            Math.min(suggestionsRef.current.length - 1, prev + 1),
+          );
+          return false;
+        }
+        if (event.key === "Tab" || event.key === "Enter") {
+          event.preventDefault();
+          const selected = suggestionsRef.current[selectedIndexRef.current];
+          if (selected) {
+            handleSelectSnippet(selected);
+          }
+          return false;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setIsSuggestionsOpen(false);
+          setCurrentInput("");
+          return false;
+        }
+      }
+
+      // Ctrl+F = open search
+      if (event.ctrlKey && !event.shiftKey && event.key === "f") {
+        event.preventDefault();
+        setIsSearchOpen(true);
+        return false;
+      }
+
+      // Ctrl+C copy
+      if (
+        event.ctrlKey &&
+        !event.shiftKey &&
+        event.key === "c" &&
+        terminal.hasSelection()
+      ) {
+        event.preventDefault();
+        const selection = terminal.getSelection();
+        navigator.clipboard.writeText(selection);
+        return false;
+      }
+
+      return true;
+    };
+
+    terminal.attachCustomKeyEventHandler(handleKey);
+
+    // Listen to terminal writes to update suggestions
+    const dataDisposable = terminal.onData(() => {
+      // Use a slight delay to allow terminal to update
+      setTimeout(() => {
+        checkAndUpdateSuggestions();
+      }, 10);
+    });
+
+    return () => {
+      dataDisposable.dispose();
+    };
+  }, [sessionId, handleSelectSnippet, checkAndUpdateSuggestions]);
+
   // Update theme and settings when they change
   useEffect(() => {
     if (terminalRef.current) {
@@ -290,7 +448,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
       terminalRef.current.options.fontFamily = settings.fontFamily;
       terminalRef.current.options.cursorStyle = settings.cursorStyle;
       terminalRef.current.options.cursorBlink = settings.cursorBlink;
-      // Refit after font changes
       if (fitAddonRef.current) {
         fitAddonRef.current.fit();
       }
@@ -300,7 +457,6 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
   // Handle resize when active state changes or window resizes
   useEffect(() => {
     if (!fitAddonRef.current) return;
-    // In alwaysVisible mode, always handle resize; otherwise only when active
     if (!alwaysVisible && !isActive) return;
 
     const handleResize = () => {
@@ -309,13 +465,9 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
       }
     };
 
-    // Fit on activation
     handleResize();
-
-    // Listen for window resize
     window.addEventListener("resize", handleResize);
-    
-    // Use ResizeObserver for container size changes
+
     const resizeObserver = new ResizeObserver(handleResize);
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
@@ -329,16 +481,20 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
 
   // Focus terminal when active
   useEffect(() => {
-    if (isActive && terminalRef.current && !isSearchOpen) {
+    if (
+      isActive &&
+      terminalRef.current &&
+      !isSearchOpen &&
+      !isSuggestionsOpen
+    ) {
       terminalRef.current.focus();
     }
-  }, [isActive, isSearchOpen]);
+  }, [isActive, isSearchOpen, isSuggestionsOpen]);
 
   return (
     <div
-      className="relative w-full h-full"
-      style={{ display: (alwaysVisible || isActive) ? "block" : "none" }}
-    >
+      className="relative w-full h-full overflow-visible"
+      style={{ display: alwaysVisible || isActive ? "block" : "none" }}>
       <div ref={containerRef} className="w-full h-full" />
       <TerminalSearch
         isOpen={isSearchOpen}
@@ -349,6 +505,16 @@ export function TerminalView({ sessionId, isActive, alwaysVisible = false, termi
         matchCount={matchCount}
         currentMatch={currentMatch}
       />
+      {isSuggestionsOpen && (
+        <TerminalSuggestions
+          isOpen={isSuggestionsOpen}
+          suggestions={suggestions}
+          selectedIndex={selectedSuggestionIndex}
+          onSelect={handleSelectSnippet}
+          position={suggestionPosition}
+          containerRef={containerRef}
+        />
+      )}
     </div>
   );
 }

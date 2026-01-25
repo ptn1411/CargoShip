@@ -16,6 +16,7 @@ import {
   Terminal,
   Users,
 } from "lucide-react";
+import { useEffect } from "react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 
@@ -204,6 +205,25 @@ function ThemeToggle() {
 }
 
 export function Sidebar({ activeItem, onItemSelect }: SidebarProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check if Alt key is pressed
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+
+      // Prevent default behavior for our shortcuts
+      const key = e.key.toUpperCase();
+      const matchedItem = navItems.find((item) => item.shortcut === key);
+
+      if (matchedItem) {
+        e.preventDefault();
+        onItemSelect(matchedItem.id);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onItemSelect]);
+
   return (
     <aside
       className="w-16 bg-secondary/50 border-r border-border flex flex-col items-center py-4"

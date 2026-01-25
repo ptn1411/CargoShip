@@ -275,15 +275,6 @@ impl SnippetLibrary {
     /// Seed default snippets if none exist
     /// Called on app startup to provide useful snippets out of the box
     pub async fn seed_default_snippets(&self) -> Result<()> {
-        // Check if any snippets exist
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM snippets")
-            .fetch_one(&self.db)
-            .await?;
-
-        if count > 0 {
-            return Ok(()); // Already has snippets, don't seed
-        }
-
         let default_snippets = vec![
             // System Info
             CreateSnippetInput {
@@ -487,11 +478,78 @@ impl SnippetLibrary {
                 category: "Security".to_string(),
                 tags: vec!["security".to_string(), "failed".to_string()],
             },
+
+            // Clawdbot
+            CreateSnippetInput {
+                name: "Clawdbot Onboard".to_string(),
+                description: Some("Onboard and install system service".to_string()),
+                command: "clawdbot onboard --install-daemon".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "setup".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Login".to_string(),
+                description: Some("Pair WhatsApp/Scan QR".to_string()),
+                command: "clawdbot channels login".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "auth".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Doctor".to_string(),
+                description: Some("Check efficient operation and issues".to_string()),
+                command: "clawdbot doctor".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "debug".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot GitHub Copilot Login".to_string(),
+                description: Some("Login to GitHub Copilot model auth".to_string()),
+                command: "clawdbot models auth login-github-copilot".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "ai".to_string(), "copilot".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Set Gemini Auth".to_string(),
+                description: Some("Login to Google Antigravity Auth".to_string()),
+                command: "clawdbot models auth login --provider google-antigravity --set-default".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "ai".to_string(), "gemini".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Enable Antigravity".to_string(),
+                description: Some("Enable Google Antigravity Auth plugin".to_string()),
+                command: "clawdbot plugins enable google-antigravity-auth".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "plugins".to_string(), "gemini".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Set Model".to_string(),
+                description: Some("Set default model to GPT-4o".to_string()),
+                command: "clawdbot models set github-copilot/gpt-4o".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "ai".to_string(), "config".to_string()],
+            },
+            CreateSnippetInput {
+                name: "Clawdbot Gateway".to_string(),
+                description: Some("Run the API gateway manually".to_string()),
+                command: "clawdbot gateway --port 18789".to_string(),
+                category: "Clawdbot".to_string(),
+                tags: vec!["clawdbot".to_string(), "gateway".to_string()],
+            },
         ];
 
         for input in default_snippets {
-            if let Err(e) = self.create_snippet(input).await {
-                eprintln!("Failed to create default snippet: {}", e);
+            // Check if snippet exists by name to avoid duplicates
+            let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM snippets WHERE name = ?")
+                .bind(&input.name)
+                .fetch_one(&self.db)
+                .await
+                .unwrap_or(0) > 0;
+
+            if !exists {
+                if let Err(e) = self.create_snippet(input).await {
+                    eprintln!("Failed to create default snippet: {}", e);
+                }
             }
         }
 
