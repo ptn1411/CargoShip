@@ -308,8 +308,6 @@ fn connect_with_timeout(
     addr: &std::net::SocketAddr,
     timeout: Duration,
 ) -> std::io::Result<TcpStream> {
-    use std::net::TcpStream;
-
     // Platform-specific connection with timeout
     #[cfg(unix)]
     {

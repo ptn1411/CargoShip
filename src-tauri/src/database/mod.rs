@@ -2,9 +2,9 @@
 // Provides MySQL and PostgreSQL management via SSH tunnel
 
 mod manager;
-mod types;
 mod storage;
+mod types;
 
 pub use manager::*;
-pub use types::*;
 pub use storage::*;
+pub use types::*;

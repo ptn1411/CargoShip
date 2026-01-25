@@ -1,11 +1,11 @@
+use super::models::*;
 use crate::error::{AppError, Result};
 use crate::server::{Server, ServerManager};
 use crate::ssh::SshClient;
-use super::models::*;
 use chrono::{DateTime, Duration, Utc};
 use sqlx::SqlitePool;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
@@ -91,7 +91,7 @@ impl MonitorService {
         "#;
 
         let output = self.ssh_client.execute_command(server, command, Some(30))?;
-        
+
         if output.exit_code != 0 {
             return Err(AppError::CommandFailed(format!(
                 "Failed to collect metrics: {}",
@@ -101,7 +101,6 @@ impl MonitorService {
 
         self.parse_metrics_output(&output.stdout)
     }
-
 
     /// Parse the metrics output from SSH command
     fn parse_metrics_output(&self, output: &str) -> Result<ServerMetrics> {
@@ -183,8 +182,9 @@ impl MonitorService {
     /// Requirements: 4.5
     pub async fn store_metrics(&self, server_id: &str, metrics: &ServerMetrics) -> Result<()> {
         let id = Uuid::new_v4().to_string();
-        let load_avg_json = serde_json::to_string(&metrics.load_average)
-            .map_err(|e| AppError::DatabaseError(format!("Failed to serialize load average: {}", e)))?;
+        let load_avg_json = serde_json::to_string(&metrics.load_average).map_err(|e| {
+            AppError::DatabaseError(format!("Failed to serialize load average: {}", e))
+        })?;
 
         sqlx::query(
             r#"
@@ -211,7 +211,6 @@ impl MonitorService {
         Ok(())
     }
 
-
     /// Get metrics history for a server
     /// Requirements: 4.5
     pub async fn get_metrics_history(
@@ -221,7 +220,7 @@ impl MonitorService {
         hours: u32,
     ) -> Result<Vec<MetricPoint>> {
         let since = Utc::now() - Duration::hours(hours as i64);
-        
+
         let rows = sqlx::query_as::<_, (f64, String)>(
             r#"
             SELECT 
@@ -262,7 +261,7 @@ impl MonitorService {
     /// Clean up old metrics data (keep last 7 days by default)
     pub async fn cleanup_old_metrics(&self, days: i64) -> Result<u64> {
         let cutoff = Utc::now() - Duration::days(days);
-        
+
         let result = sqlx::query("DELETE FROM server_metrics WHERE collected_at < ?")
             .bind(cutoff.to_rfc3339())
             .execute(&self.db)
@@ -321,31 +320,36 @@ impl MonitorService {
 
         let alerts = rows
             .into_iter()
-            .filter_map(|(id, server_id, metric, condition, threshold, enabled, created_at)| {
-                let metric = metric.parse().ok()?;
-                let condition = condition.parse().ok()?;
-                let created_at = DateTime::parse_from_rfc3339(&created_at).ok()?.with_timezone(&Utc);
-                
-                Some(AlertConfig {
-                    id,
-                    server_id,
-                    metric,
-                    condition,
-                    threshold: threshold as f32,
-                    enabled,
-                    created_at,
-                })
-            })
+            .filter_map(
+                |(id, server_id, metric, condition, threshold, enabled, created_at)| {
+                    let metric = metric.parse().ok()?;
+                    let condition = condition.parse().ok()?;
+                    let created_at = DateTime::parse_from_rfc3339(&created_at)
+                        .ok()?
+                        .with_timezone(&Utc);
+
+                    Some(AlertConfig {
+                        id,
+                        server_id,
+                        metric,
+                        condition,
+                        threshold: threshold as f32,
+                        enabled,
+                        created_at,
+                    })
+                },
+            )
             .collect();
 
         Ok(alerts)
     }
 
-
     /// Update an alert configuration
     pub async fn update_alert(&self, id: &str, input: UpdateAlertInput) -> Result<AlertConfig> {
         // Get existing alert
-        let existing = self.get_alert(id).await?
+        let existing = self
+            .get_alert(id)
+            .await?
             .ok_or_else(|| AppError::ValidationError(format!("Alert not found: {}", id)))?;
 
         let server_id = input.server_id.or(existing.server_id);
@@ -392,21 +396,25 @@ impl MonitorService {
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to get alert: {}", e)))?;
 
-        let alert = row.and_then(|(id, server_id, metric, condition, threshold, enabled, created_at)| {
-            let metric = metric.parse().ok()?;
-            let condition = condition.parse().ok()?;
-            let created_at = DateTime::parse_from_rfc3339(&created_at).ok()?.with_timezone(&Utc);
-            
-            Some(AlertConfig {
-                id,
-                server_id,
-                metric,
-                condition,
-                threshold: threshold as f32,
-                enabled,
-                created_at,
-            })
-        });
+        let alert = row.and_then(
+            |(id, server_id, metric, condition, threshold, enabled, created_at)| {
+                let metric = metric.parse().ok()?;
+                let condition = condition.parse().ok()?;
+                let created_at = DateTime::parse_from_rfc3339(&created_at)
+                    .ok()?
+                    .with_timezone(&Utc);
+
+                Some(AlertConfig {
+                    id,
+                    server_id,
+                    metric,
+                    condition,
+                    threshold: threshold as f32,
+                    enabled,
+                    created_at,
+                })
+            },
+        );
 
         Ok(alert)
     }
@@ -440,7 +448,7 @@ impl MonitorService {
             for server in servers_to_check {
                 if let Ok(metrics) = self.get_server_metrics(server) {
                     let value = self.get_metric_value(&metrics, &alert.metric);
-                    
+
                     if self.evaluate_condition(value, &alert.condition, alert.threshold) {
                         let triggered_alert = Alert {
                             alert_config_id: alert.id.clone(),
@@ -460,7 +468,6 @@ impl MonitorService {
 
         Ok(triggered)
     }
-
 
     /// Get the metric value from ServerMetrics based on MetricType
     fn get_metric_value(&self, metrics: &ServerMetrics, metric_type: &MetricType) -> f32 {
@@ -485,7 +492,12 @@ impl MonitorService {
 
     /// Evaluate alert condition
     /// Requirements: 4.3
-    pub fn evaluate_condition(&self, value: f32, condition: &AlertCondition, threshold: f32) -> bool {
+    pub fn evaluate_condition(
+        &self,
+        value: f32,
+        condition: &AlertCondition,
+        threshold: f32,
+    ) -> bool {
         match condition {
             AlertCondition::GreaterThan => value > threshold,
             AlertCondition::LessThan => value < threshold,
@@ -541,7 +553,7 @@ impl MonitorService {
     /// This can be called manually or by the background monitoring loop
     pub async fn run_monitoring_cycle(&self) -> Result<()> {
         let servers = self.server_manager.lock().await.list_servers().await?;
-        
+
         for server in servers {
             match self.get_server_metrics(&server) {
                 Ok(metrics) => {
@@ -552,10 +564,13 @@ impl MonitorService {
 
                     // Emit metrics update event
                     if let Some(ref app_handle) = *self.app_handle.read().await {
-                        let _ = app_handle.emit("metrics-updated", serde_json::json!({
-                            "server_id": server.id,
-                            "metrics": metrics,
-                        }));
+                        let _ = app_handle.emit(
+                            "metrics-updated",
+                            serde_json::json!({
+                                "server_id": server.id,
+                                "metrics": metrics,
+                            }),
+                        );
                     }
                 }
                 Err(e) => {

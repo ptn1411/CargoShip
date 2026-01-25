@@ -9,12 +9,12 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Manager for handling deployment rollbacks
-/// 
+///
 /// Provides functionality to:
 /// - Execute rollback steps for failed deployments
 /// - Create linked deployment records for rollbacks
 /// - Handle rollback failures appropriately
-/// 
+///
 /// Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
 pub struct RollbackManager {
     script_manager: Arc<Mutex<ScriptManager>>,
@@ -42,40 +42,50 @@ impl RollbackManager {
     }
 
     /// Execute rollback for a deployment
-    /// 
+    ///
     /// This method:
     /// 1. Retrieves the original deployment and its script
     /// 2. Validates that rollback steps exist
     /// 3. Creates a new linked deployment record for the rollback
     /// 4. Executes the rollback steps
     /// 5. Updates both the rollback and original deployment statuses
-    /// 
+    ///
     /// # Arguments
     /// * `deployment_id` - The ID of the deployment to rollback
-    /// 
+    ///
     /// # Returns
     /// * `Ok(Deployment)` - The rollback deployment record
     /// * `Err(AppError)` - If rollback fails
-    /// 
+    ///
     /// Requirements: 8.1, 8.2, 8.3, 8.4, 8.5
     pub async fn execute_rollback(&self, deployment_id: &str) -> Result<Deployment> {
         // Get the original deployment
-        let original_deployment = self.deployment_logger.get_deployment(deployment_id).await?
-            .ok_or_else(|| AppError::ValidationError(
-                format!("Deployment not found: {}", deployment_id)
-            ))?;
+        let original_deployment = self
+            .deployment_logger
+            .get_deployment(deployment_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::ValidationError(format!("Deployment not found: {}", deployment_id))
+            })?;
 
         // Get the script for this deployment
-        let script = self.script_manager.lock().await
-            .get_script(&original_deployment.script_id).await?
-            .ok_or_else(|| AppError::ValidationError(
-                format!("Script not found: {}", original_deployment.script_id)
-            ))?;
+        let script = self
+            .script_manager
+            .lock()
+            .await
+            .get_script(&original_deployment.script_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::ValidationError(format!(
+                    "Script not found: {}",
+                    original_deployment.script_id
+                ))
+            })?;
 
         // Validate rollback steps exist (Requirements: 8.1)
         if script.rollback_steps.is_empty() {
             return Err(AppError::ValidationError(
-                "Script has no rollback steps defined".to_string()
+                "Script has no rollback steps defined".to_string(),
             ));
         }
 
@@ -89,16 +99,18 @@ impl RollbackManager {
 
         // Execute rollback using the script engine
         // This creates a linked deployment record (Requirements: 8.3)
-        let rollback_deployment = script_engine.execute_rollback(&script, &original_deployment).await?;
+        let rollback_deployment = script_engine
+            .execute_rollback(&script, &original_deployment)
+            .await?;
 
         Ok(rollback_deployment)
     }
 
     /// Get the rollback steps for a script
-    /// 
+    ///
     /// # Arguments
     /// * `script` - The deployment script
-    /// 
+    ///
     /// # Returns
     /// * The rollback steps defined in the script
     pub fn get_rollback_steps(&self, script: &DeploymentScript) -> Vec<Step> {
@@ -106,16 +118,16 @@ impl RollbackManager {
     }
 
     /// Check if a deployment can be rolled back
-    /// 
+    ///
     /// A deployment can be rolled back if:
     /// - It exists
     /// - Its script has rollback steps defined
     /// - It's not already a rollback deployment
     /// - Its status is Failed, Partial, or Success
-    /// 
+    ///
     /// # Arguments
     /// * `deployment_id` - The ID of the deployment to check
-    /// 
+    ///
     /// # Returns
     /// * `Ok(bool)` - Whether the deployment can be rolled back
     /// * `Err(AppError)` - If there's an error checking
@@ -134,9 +146,7 @@ impl RollbackManager {
         // Check if status allows rollback
         let can_rollback_status = matches!(
             deployment.status,
-            DeploymentStatus::Failed 
-            | DeploymentStatus::Partial 
-            | DeploymentStatus::Success
+            DeploymentStatus::Failed | DeploymentStatus::Partial | DeploymentStatus::Success
         );
 
         if !can_rollback_status {
@@ -144,8 +154,13 @@ impl RollbackManager {
         }
 
         // Check if script has rollback steps
-        let script = match self.script_manager.lock().await
-            .get_script(&deployment.script_id).await? {
+        let script = match self
+            .script_manager
+            .lock()
+            .await
+            .get_script(&deployment.script_id)
+            .await?
+        {
             Some(s) => s,
             None => return Ok(false),
         };
@@ -154,30 +169,40 @@ impl RollbackManager {
     }
 
     /// Get rollback information for a deployment
-    /// 
+    ///
     /// Returns information about whether a deployment can be rolled back
     /// and the rollback steps that would be executed.
-    /// 
+    ///
     /// # Arguments
     /// * `deployment_id` - The ID of the deployment
-    /// 
+    ///
     /// # Returns
     /// * `Ok(RollbackInfo)` - Information about the rollback
     /// * `Err(AppError)` - If there's an error
     pub async fn get_rollback_info(&self, deployment_id: &str) -> Result<RollbackInfo> {
-        let deployment = self.deployment_logger.get_deployment(deployment_id).await?
-            .ok_or_else(|| AppError::ValidationError(
-                format!("Deployment not found: {}", deployment_id)
-            ))?;
+        let deployment = self
+            .deployment_logger
+            .get_deployment(deployment_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::ValidationError(format!("Deployment not found: {}", deployment_id))
+            })?;
 
-        let script = self.script_manager.lock().await
-            .get_script(&deployment.script_id).await?;
+        let script = self
+            .script_manager
+            .lock()
+            .await
+            .get_script(&deployment.script_id)
+            .await?;
 
         let (has_rollback_steps, rollback_step_count, rollback_step_names) = match &script {
             Some(s) => (
                 !s.rollback_steps.is_empty(),
                 s.rollback_steps.len(),
-                s.rollback_steps.iter().map(|step| step.name.clone()).collect(),
+                s.rollback_steps
+                    .iter()
+                    .map(|step| step.name.clone())
+                    .collect(),
             ),
             None => (false, 0, Vec::new()),
         };
@@ -193,7 +218,10 @@ impl RollbackManager {
                 deployment.status,
                 DeploymentStatus::Failed | DeploymentStatus::Partial | DeploymentStatus::Success
             ) {
-                Some(format!("Deployment status '{}' does not allow rollback", deployment.status))
+                Some(format!(
+                    "Deployment status '{}' does not allow rollback",
+                    deployment.status
+                ))
             } else {
                 Some("Unknown reason".to_string())
             }

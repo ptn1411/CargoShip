@@ -1,6 +1,6 @@
+use super::models::*;
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
-use super::models::*;
 use chrono::Utc;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -13,12 +13,17 @@ pub struct ServerManager {
 
 impl ServerManager {
     pub fn new(db: SqlitePool, credential_store: Arc<CredentialStore>) -> Self {
-        Self { db, credential_store }
+        Self {
+            db,
+            credential_store,
+        }
     }
 
     pub fn validate_server_input(input: &CreateServerInput) -> Result<()> {
         if input.host.trim().is_empty() {
-            return Err(AppError::ValidationError("Hostname cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Hostname cannot be empty".to_string(),
+            ));
         }
 
         // Port must be between 1 and 65535 (u16 max is 65535, but 0 is invalid)
@@ -29,11 +34,15 @@ impl ServerManager {
         }
 
         if input.username.trim().is_empty() {
-            return Err(AppError::ValidationError("Username cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Username cannot be empty".to_string(),
+            ));
         }
 
         if input.name.trim().is_empty() {
-            return Err(AppError::ValidationError("Server name cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server name cannot be empty".to_string(),
+            ));
         }
 
         Ok(())
@@ -43,7 +52,9 @@ impl ServerManager {
     pub fn validate_update_input(host: Option<&str>, port: Option<u16>) -> Result<()> {
         if let Some(h) = host {
             if h.trim().is_empty() {
-                return Err(AppError::ValidationError("Hostname cannot be empty".to_string()));
+                return Err(AppError::ValidationError(
+                    "Hostname cannot be empty".to_string(),
+                ));
             }
         }
 
@@ -58,7 +69,13 @@ impl ServerManager {
         Ok(())
     }
 
-    pub async fn check_duplicate(&self, host: &str, port: u16, username: &str, exclude_id: Option<&str>) -> Result<bool> {
+    pub async fn check_duplicate(
+        &self,
+        host: &str,
+        port: u16,
+        username: &str,
+        exclude_id: Option<&str>,
+    ) -> Result<bool> {
         let query = match exclude_id {
             Some(id) => {
                 sqlx::query_scalar::<_, i64>(
@@ -87,7 +104,10 @@ impl ServerManager {
         Self::validate_server_input(&input)?;
 
         // Check for duplicate server (same host, port, username)
-        if self.check_duplicate(&input.host, input.port, &input.username, None).await? {
+        if self
+            .check_duplicate(&input.host, input.port, &input.username, None)
+            .await?
+        {
             return Err(AppError::DuplicateServerWarning(
                 input.host.clone(),
                 input.port,
@@ -184,28 +204,26 @@ impl ServerManager {
     }
 
     pub async fn get_server(&self, id: &str) -> Result<Option<Server>> {
-        let row = sqlx::query_as::<_, ServerRow>(
-            "SELECT * FROM servers WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(&self.db)
-        .await?;
+        let row = sqlx::query_as::<_, ServerRow>("SELECT * FROM servers WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await?;
 
         Ok(row.map(|r| r.into_server()))
     }
 
     pub async fn list_servers(&self) -> Result<Vec<Server>> {
-        let rows = sqlx::query_as::<_, ServerRow>(
-            "SELECT * FROM servers ORDER BY name"
-        )
-        .fetch_all(&self.db)
-        .await?;
+        let rows = sqlx::query_as::<_, ServerRow>("SELECT * FROM servers ORDER BY name")
+            .fetch_all(&self.db)
+            .await?;
 
         Ok(rows.into_iter().map(|r| r.into_server()).collect())
     }
 
     pub async fn update_server(&self, id: &str, input: UpdateServerInput) -> Result<Server> {
-        let existing = self.get_server(id).await?
+        let existing = self
+            .get_server(id)
+            .await?
             .ok_or_else(|| AppError::ServerNotFound(id.to_string()))?;
 
         let name = input.name.unwrap_or(existing.name);
@@ -227,19 +245,27 @@ impl ServerManager {
         Self::validate_update_input(input.host.as_deref(), input.port)?;
 
         if name.trim().is_empty() {
-            return Err(AppError::ValidationError("Server name cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server name cannot be empty".to_string(),
+            ));
         }
         if username.trim().is_empty() {
-            return Err(AppError::ValidationError("Username cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Username cannot be empty".to_string(),
+            ));
         }
 
         // Check for duplicate if host, port, or username changed
         let host_changed = input.host.is_some() && input.host.as_ref() != Some(&existing.host);
         let port_changed = input.port.is_some() && input.port != Some(existing.port);
-        let username_changed = input.username.is_some() && input.username.as_ref() != Some(&existing.username);
+        let username_changed =
+            input.username.is_some() && input.username.as_ref() != Some(&existing.username);
 
         if host_changed || port_changed || username_changed {
-            if self.check_duplicate(&host, port, &username, Some(id)).await? {
+            if self
+                .check_duplicate(&host, port, &username, Some(id))
+                .await?
+            {
                 return Err(AppError::DuplicateServerWarning(
                     host.clone(),
                     port,

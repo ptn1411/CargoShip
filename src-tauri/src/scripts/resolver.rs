@@ -34,7 +34,7 @@ impl ExecutionContext {
 }
 
 /// Variable Resolver handles variable interpolation in deployment scripts
-/// 
+///
 /// Supports:
 /// - User-defined variables: {{variable_name}}
 /// - Dynamic variables: {{date}}, {{timestamp}}, {{user}}, {{server_name}}
@@ -51,16 +51,16 @@ impl VariableResolver {
     }
 
     /// Resolve all variables in a template string
-    /// 
+    ///
     /// # Arguments
     /// * `template` - String containing {{variable}} patterns
     /// * `variables` - Map of variable names to values
     /// * `context` - Execution context for dynamic variables
-    /// 
+    ///
     /// # Returns
     /// * `Ok(String)` - Template with all variables replaced
     /// * `Err(AppError)` - If a required variable is missing or resolution fails
-    /// 
+    ///
     /// # Requirements: 4.1
     pub fn resolve(
         &self,
@@ -72,20 +72,20 @@ impl VariableResolver {
     }
 
     /// Resolve all variables in a template string with script variable definitions
-    /// 
+    ///
     /// This method supports secret variable handling by checking variable types
     /// from the script definition and retrieving secrets from CredentialStore.
-    /// 
+    ///
     /// # Arguments
     /// * `template` - String containing {{variable}} patterns
     /// * `variables` - Map of variable names to values
     /// * `context` - Execution context for dynamic variables
     /// * `script_variables` - Variable definitions from the script (for type checking)
-    /// 
+    ///
     /// # Returns
     /// * `Ok(String)` - Template with all variables replaced
     /// * `Err(AppError)` - If a required variable is missing or resolution fails
-    /// 
+    ///
     /// # Requirements: 4.1, 4.4
     pub fn resolve_with_script(
         &self,
@@ -107,7 +107,14 @@ impl VariableResolver {
         depth: usize,
     ) -> Result<String> {
         let mut cache = HashMap::new();
-        self.resolve_with_cache(template, variables, context, script_variables, &mut cache, depth)
+        self.resolve_with_cache(
+            template,
+            variables,
+            context,
+            script_variables,
+            &mut cache,
+            depth,
+        )
     }
 
     /// Single-pass resolution with cache for O(n) complexity
@@ -125,7 +132,7 @@ impl VariableResolver {
 
         if depth > MAX_DEPTH {
             return Err(AppError::ValidationError(
-                "Maximum variable nesting depth exceeded (possible circular reference)".to_string()
+                "Maximum variable nesting depth exceeded (possible circular reference)".to_string(),
             ));
         }
 
@@ -133,7 +140,7 @@ impl VariableResolver {
 
         // Use replace_all for single-pass resolution
         let mut last_error: Option<AppError> = None;
-        
+
         let result = var_pattern.replace_all(template, |caps: &regex::Captures| {
             let var_name = caps[1].trim();
 
@@ -147,7 +154,14 @@ impl VariableResolver {
                 Ok(value) => {
                     // Recursively resolve nested variables with cache
                     let resolved = self
-                        .resolve_with_cache(&value, variables, context, script_variables, cache, depth + 1)
+                        .resolve_with_cache(
+                            &value,
+                            variables,
+                            context,
+                            script_variables,
+                            cache,
+                            depth + 1,
+                        )
                         .unwrap_or_else(|e| {
                             last_error = Some(e);
                             value.clone()
@@ -172,13 +186,13 @@ impl VariableResolver {
     }
 
     /// Get the value for a single variable
-    /// 
+    ///
     /// Resolution order:
     /// 1. Dynamic variables (date, timestamp, user, server_name, etc.)
     /// 2. Secret variables (retrieved from CredentialStore)
     /// 3. User-provided variables
     /// 4. Default values from script variable definitions
-    /// 
+    ///
     /// # Requirements: 4.3, 4.4
     fn get_variable_value(
         &self,
@@ -216,26 +230,27 @@ impl VariableResolver {
 
         // Variable not found
         Err(AppError::ValidationError(format!(
-            "Undefined variable: '{}'", var_name
+            "Undefined variable: '{}'",
+            var_name
         )))
     }
 
     /// Retrieve a secret variable from the CredentialStore
-    /// 
+    ///
     /// Secret variables can be provided in two ways:
     /// 1. As a credential key in the format "credential:<server_id>" - retrieves from CredentialStore
     /// 2. As a direct value in the variables map (for runtime-provided secrets)
     /// 3. As a default value from the variable definition (Requirements 4.3)
-    /// 
+    ///
     /// # Arguments
     /// * `var_name` - The name of the secret variable
     /// * `variables` - Map of variable names to values (may contain credential key or direct value)
     /// * `var_def` - The variable definition (for default value fallback)
-    /// 
+    ///
     /// # Returns
     /// * `Ok(String)` - The secret value
     /// * `Err(AppError)` - If the secret cannot be retrieved
-    /// 
+    ///
     /// # Requirements: 4.3, 4.4
     fn get_secret_variable(
         &self,
@@ -270,7 +285,7 @@ impl VariableResolver {
     }
 
     /// Get value for dynamic variables
-    /// 
+    ///
     /// # Requirements: 4.5
     pub fn get_dynamic_variable(&self, name: &str, context: &ExecutionContext) -> Option<String> {
         match name {
@@ -295,19 +310,22 @@ impl VariableResolver {
 
     /// Check if a variable name is a dynamic variable
     pub fn is_dynamic_variable(&self, name: &str) -> bool {
-        matches!(name, "date" | "timestamp" | "user" | "server_name" | "server_host" | "server_user")
+        matches!(
+            name,
+            "date" | "timestamp" | "user" | "server_name" | "server_host" | "server_user"
+        )
     }
 
     /// Validate that all required variables are provided
-    /// 
+    ///
     /// # Arguments
     /// * `script` - The deployment script containing variable definitions
     /// * `provided` - Map of variable names to values that were provided
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` - If all required variables are provided
     /// * `Err(AppError)` - If any required variables are missing, with their names listed
-    /// 
+    ///
     /// # Requirements: 4.2
     pub fn validate_required(
         &self,
@@ -337,7 +355,7 @@ impl VariableResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scripts::models::{Variable, VariableType, Step};
+    use crate::scripts::models::{Step, Variable, VariableType};
 
     fn test_resolver() -> VariableResolver {
         VariableResolver::new(Arc::new(CredentialStore::new()))
@@ -391,7 +409,7 @@ mod tests {
 
         let template = "Deploying {{app_name}} version {{version}}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Deploying myapp version 1.0.0");
     }
 
@@ -404,7 +422,7 @@ mod tests {
 
         let template = "Deploying {{ app_name }}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Deploying myapp");
     }
 
@@ -418,7 +436,7 @@ mod tests {
 
         let template = "Deploy to {{base_path}}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Deploy to /var/www/myapp");
     }
 
@@ -430,7 +448,7 @@ mod tests {
 
         let template = "Deploying {{undefined_var}}";
         let result = resolver.resolve(template, &vars, &context);
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("undefined_var"));
@@ -444,7 +462,7 @@ mod tests {
 
         let template = "Backup created on {{date}}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Backup created on 2024-01-15");
     }
 
@@ -456,7 +474,7 @@ mod tests {
 
         let template = "Log file: app_{{timestamp}}.log";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Log file: app_2024-01-15_10-30-00.log");
     }
 
@@ -468,7 +486,7 @@ mod tests {
 
         let template = "Deployed by {{user}}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Deployed by testuser");
     }
 
@@ -480,7 +498,7 @@ mod tests {
 
         let template = "Deploying to {{server_name}}";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "Deploying to Production Server");
     }
 
@@ -488,9 +506,9 @@ mod tests {
     fn test_extract_variables() {
         let resolver = test_resolver();
         let template = "Deploy {{app_name}} to {{server}} with {{config}}";
-        
+
         let vars = resolver.extract_variables(template);
-        
+
         assert_eq!(vars.len(), 3);
         assert!(vars.contains(&"app_name".to_string()));
         assert!(vars.contains(&"server".to_string()));
@@ -505,7 +523,7 @@ mod tests {
 
         let template = "No variables here";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "No variables here");
     }
 
@@ -518,7 +536,7 @@ mod tests {
 
         let template = "{{name}} and {{name}} again";
         let result = resolver.resolve(template, &vars, &context).unwrap();
-        
+
         assert_eq!(result, "test and test again");
     }
 
@@ -721,23 +739,23 @@ mod tests {
     fn test_secret_variable_with_direct_value() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "db_password".to_string(),
-                description: "Database password".to_string(),
-                default_value: None,
-                required: true,
-                var_type: VariableType::Secret,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "db_password".to_string(),
+            description: "Database password".to_string(),
+            default_value: None,
+            required: true,
+            var_type: VariableType::Secret,
+        }];
 
         let mut vars = HashMap::new();
         vars.insert("db_password".to_string(), "secret123".to_string());
 
         let template = "mysql -p{{db_password}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "mysql -psecret123");
     }
 
@@ -745,22 +763,20 @@ mod tests {
     fn test_secret_variable_missing_error() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "db_password".to_string(),
-                description: "Database password".to_string(),
-                default_value: None,
-                required: true,
-                var_type: VariableType::Secret,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "db_password".to_string(),
+            description: "Database password".to_string(),
+            default_value: None,
+            required: true,
+            var_type: VariableType::Secret,
+        }];
 
         let vars = HashMap::new(); // No password provided
 
         let template = "mysql -p{{db_password}}";
         let result = resolver.resolve_with_script(template, &vars, &context, &script_variables);
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("db_password"));
@@ -771,33 +787,40 @@ mod tests {
     fn test_secret_variable_with_credential_reference() {
         // This test requires a working credential store
         // We'll use a test service name to avoid conflicts
-        let credential_store = Arc::new(CredentialStore::with_service_name("devops-commander-test-resolver"));
+        let credential_store = Arc::new(CredentialStore::with_service_name(
+            "devops-commander-test-resolver",
+        ));
         let resolver = VariableResolver::new(credential_store.clone());
         let context = test_context();
-        
+
         let server_id = "test-server-secret-var";
-        
+
         // Store a test credential
         let _ = credential_store.delete_credential(server_id); // Cleanup first
-        credential_store.store_password(server_id, "stored-secret-password").unwrap();
+        credential_store
+            .store_password(server_id, "stored-secret-password")
+            .unwrap();
 
-        let script_variables = vec![
-            Variable {
-                name: "db_password".to_string(),
-                description: "Database password".to_string(),
-                default_value: None,
-                required: true,
-                var_type: VariableType::Secret,
-            },
-        ];
+        let script_variables = vec![Variable {
+            name: "db_password".to_string(),
+            description: "Database password".to_string(),
+            default_value: None,
+            required: true,
+            var_type: VariableType::Secret,
+        }];
 
         let mut vars = HashMap::new();
         // Use credential reference format
-        vars.insert("db_password".to_string(), format!("credential:{}", server_id));
+        vars.insert(
+            "db_password".to_string(),
+            format!("credential:{}", server_id),
+        );
 
         let template = "mysql -p{{db_password}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "mysql -pstored-secret-password");
 
         // Cleanup
@@ -806,27 +829,30 @@ mod tests {
 
     #[test]
     fn test_secret_variable_with_invalid_credential_reference() {
-        let credential_store = Arc::new(CredentialStore::with_service_name("devops-commander-test-resolver"));
+        let credential_store = Arc::new(CredentialStore::with_service_name(
+            "devops-commander-test-resolver",
+        ));
         let resolver = VariableResolver::new(credential_store.clone());
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "db_password".to_string(),
-                description: "Database password".to_string(),
-                default_value: None,
-                required: true,
-                var_type: VariableType::Secret,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "db_password".to_string(),
+            description: "Database password".to_string(),
+            default_value: None,
+            required: true,
+            var_type: VariableType::Secret,
+        }];
 
         let mut vars = HashMap::new();
         // Reference a non-existent credential
-        vars.insert("db_password".to_string(), "credential:nonexistent-server-12345".to_string());
+        vars.insert(
+            "db_password".to_string(),
+            "credential:nonexistent-server-12345".to_string(),
+        );
 
         let template = "mysql -p{{db_password}}";
         let result = resolver.resolve_with_script(template, &vars, &context, &script_variables);
-        
+
         assert!(result.is_err());
     }
 
@@ -834,7 +860,7 @@ mod tests {
     fn test_mixed_secret_and_regular_variables() {
         let resolver = test_resolver();
         let context = test_context();
-        
+
         let script_variables = vec![
             Variable {
                 name: "db_user".to_string(),
@@ -865,8 +891,10 @@ mod tests {
         vars.insert("db_host".to_string(), "localhost".to_string());
 
         let template = "mysql -u{{db_user}} -p{{db_password}} -h{{db_host}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "mysql -uadmin -psecret123 -hlocalhost");
     }
 
@@ -876,15 +904,17 @@ mod tests {
         // and the variable is treated as a regular variable
         let resolver = test_resolver();
         let context = test_context();
-        
+
         let script_variables: Vec<Variable> = vec![];
 
         let mut vars = HashMap::new();
         vars.insert("password".to_string(), "mypassword".to_string());
 
         let template = "echo {{password}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "echo mypassword");
     }
 
@@ -894,22 +924,22 @@ mod tests {
     fn test_default_value_used_when_not_provided() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "env".to_string(),
-                description: "Environment".to_string(),
-                default_value: Some("production".to_string()),
-                required: false,
-                var_type: VariableType::String,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "env".to_string(),
+            description: "Environment".to_string(),
+            default_value: Some("production".to_string()),
+            required: false,
+            var_type: VariableType::String,
+        }];
 
         let vars = HashMap::new(); // No value provided
 
         let template = "Deploying to {{env}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "Deploying to production");
     }
 
@@ -917,23 +947,23 @@ mod tests {
     fn test_provided_value_overrides_default() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "env".to_string(),
-                description: "Environment".to_string(),
-                default_value: Some("production".to_string()),
-                required: false,
-                var_type: VariableType::String,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "env".to_string(),
+            description: "Environment".to_string(),
+            default_value: Some("production".to_string()),
+            required: false,
+            var_type: VariableType::String,
+        }];
 
         let mut vars = HashMap::new();
         vars.insert("env".to_string(), "staging".to_string());
 
         let template = "Deploying to {{env}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "Deploying to staging");
     }
 
@@ -941,7 +971,7 @@ mod tests {
     fn test_multiple_variables_with_defaults() {
         let resolver = test_resolver();
         let context = test_context();
-        
+
         let script_variables = vec![
             Variable {
                 name: "app_name".to_string(),
@@ -971,8 +1001,10 @@ mod tests {
         // port and env use defaults
 
         let template = "Starting {{app_name}} on port {{port}} in {{env}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "Starting myapp on port 8080 in development");
     }
 
@@ -980,7 +1012,7 @@ mod tests {
     fn test_default_value_with_nested_variable() {
         let resolver = test_resolver();
         let context = test_context();
-        
+
         let script_variables = vec![
             Variable {
                 name: "app_name".to_string(),
@@ -1003,8 +1035,10 @@ mod tests {
         // deploy_path uses default with nested variable
 
         let template = "Deploying to {{deploy_path}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "Deploying to /var/www/myapp");
     }
 
@@ -1012,22 +1046,22 @@ mod tests {
     fn test_secret_variable_with_default_value() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "api_key".to_string(),
-                description: "API Key".to_string(),
-                default_value: Some("default-api-key-123".to_string()),
-                required: false,
-                var_type: VariableType::Secret,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "api_key".to_string(),
+            description: "API Key".to_string(),
+            default_value: Some("default-api-key-123".to_string()),
+            required: false,
+            var_type: VariableType::Secret,
+        }];
 
         let vars = HashMap::new(); // No value provided, should use default
 
         let template = "curl -H 'Authorization: {{api_key}}'";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "curl -H 'Authorization: default-api-key-123'");
     }
 
@@ -1035,22 +1069,22 @@ mod tests {
     fn test_empty_default_value() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "extra_args".to_string(),
-                description: "Extra arguments".to_string(),
-                default_value: Some("".to_string()),
-                required: false,
-                var_type: VariableType::String,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "extra_args".to_string(),
+            description: "Extra arguments".to_string(),
+            default_value: Some("".to_string()),
+            required: false,
+            var_type: VariableType::String,
+        }];
 
         let vars = HashMap::new();
 
         let template = "command {{extra_args}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         assert_eq!(result, "command ");
     }
 
@@ -1058,22 +1092,20 @@ mod tests {
     fn test_no_default_value_causes_error() {
         let resolver = test_resolver();
         let context = test_context();
-        
-        let script_variables = vec![
-            Variable {
-                name: "required_var".to_string(),
-                description: "Required variable".to_string(),
-                default_value: None, // No default
-                required: true,
-                var_type: VariableType::String,
-            },
-        ];
+
+        let script_variables = vec![Variable {
+            name: "required_var".to_string(),
+            description: "Required variable".to_string(),
+            default_value: None, // No default
+            required: true,
+            var_type: VariableType::String,
+        }];
 
         let vars = HashMap::new(); // No value provided
 
         let template = "Using {{required_var}}";
         let result = resolver.resolve_with_script(template, &vars, &context, &script_variables);
-        
+
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("required_var"));
@@ -1083,23 +1115,23 @@ mod tests {
     fn test_dynamic_variable_takes_precedence_over_default() {
         let resolver = test_resolver();
         let context = test_context();
-        
+
         // Even if a variable named "date" has a default, the dynamic variable should be used
-        let script_variables = vec![
-            Variable {
-                name: "date".to_string(),
-                description: "Date".to_string(),
-                default_value: Some("2000-01-01".to_string()),
-                required: false,
-                var_type: VariableType::String,
-            },
-        ];
+        let script_variables = vec![Variable {
+            name: "date".to_string(),
+            description: "Date".to_string(),
+            default_value: Some("2000-01-01".to_string()),
+            required: false,
+            var_type: VariableType::String,
+        }];
 
         let vars = HashMap::new();
 
         let template = "Backup on {{date}}";
-        let result = resolver.resolve_with_script(template, &vars, &context, &script_variables).unwrap();
-        
+        let result = resolver
+            .resolve_with_script(template, &vars, &context, &script_variables)
+            .unwrap();
+
         // Should use dynamic date, not the default
         assert_eq!(result, "Backup on 2024-01-15");
     }

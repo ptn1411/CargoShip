@@ -81,7 +81,7 @@ pub struct RollbackStatus {
 }
 
 /// Script execution engine
-/// 
+///
 /// Handles:
 /// - Sequential and parallel execution of deployment steps
 /// - Variable resolution and interpolation
@@ -89,7 +89,7 @@ pub struct RollbackStatus {
 /// - Step timeouts
 /// - Deployment cancellation
 /// - Real-time logging
-/// 
+///
 /// Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8, 6.6
 pub struct ScriptEngine {
     ssh_client: Arc<SshClient>,
@@ -116,17 +116,16 @@ impl ScriptEngine {
         }
     }
 
-
     /// Execute a deployment script on the specified servers
-    /// 
+    ///
     /// # Arguments
     /// * `script` - The deployment script to execute
     /// * `config` - Execution configuration including servers and variables
-    /// 
+    ///
     /// # Returns
     /// * `Ok(Deployment)` - The completed deployment record
     /// * `Err(AppError)` - If execution fails
-    /// 
+    ///
     /// # Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.7
     pub async fn execute(
         &self,
@@ -134,12 +133,15 @@ impl ScriptEngine {
         config: ExecutionConfig,
     ) -> Result<Deployment> {
         // Validate required variables
-        self.variable_resolver.validate_required(script, &config.variables)?;
+        self.variable_resolver
+            .validate_required(script, &config.variables)?;
 
         // Get servers
         let servers = self.get_servers(&config.server_ids).await?;
         if servers.is_empty() {
-            return Err(AppError::ValidationError("No servers specified for deployment".to_string()));
+            return Err(AppError::ValidationError(
+                "No servers specified for deployment".to_string(),
+            ));
         }
 
         // Merge sudo_password into variables if provided
@@ -149,28 +151,48 @@ impl ScriptEngine {
         }
 
         // Create deployment record (without sudo password for security)
-        let deployment = self.deployment_logger.create_deployment(
-            &script.id,
-            &script.name,
-            &config.server_ids,
-            &config.variables, // Use original variables without sudo password
-            &whoami::username(),
-        ).await?;
+        let deployment = self
+            .deployment_logger
+            .create_deployment(
+                &script.id,
+                &script.name,
+                &config.server_ids,
+                &config.variables, // Use original variables without sudo password
+                &whoami::username(),
+            )
+            .await?;
 
         // Register running deployment for cancellation support
         let cancel_flag = Arc::new(AtomicBool::new(false));
         {
             let mut running = self.running_deployments.lock().await;
-            running.insert(deployment.id.clone(), RunningDeployment {
-                cancel_flag: cancel_flag.clone(),
-            });
+            running.insert(
+                deployment.id.clone(),
+                RunningDeployment {
+                    cancel_flag: cancel_flag.clone(),
+                },
+            );
         }
 
         // Execute based on parallel/sequential mode
         let result = if config.parallel && servers.len() > 1 {
-            self.execute_parallel(script, &deployment, &servers, &variables, cancel_flag.clone()).await
+            self.execute_parallel(
+                script,
+                &deployment,
+                &servers,
+                &variables,
+                cancel_flag.clone(),
+            )
+            .await
         } else {
-            self.execute_sequential(script, &deployment, &servers, &variables, cancel_flag.clone()).await
+            self.execute_sequential(
+                script,
+                &deployment,
+                &servers,
+                &variables,
+                cancel_flag.clone(),
+            )
+            .await
         };
 
         // Remove from running deployments
@@ -184,10 +206,14 @@ impl ScriptEngine {
             Ok(status) => status.clone(),
             Err(_) => DeploymentStatus::Failed,
         };
-        self.deployment_logger.complete_deployment(&deployment.id, final_status.clone()).await?;
+        self.deployment_logger
+            .complete_deployment(&deployment.id, final_status.clone())
+            .await?;
 
         // Return updated deployment
-        self.deployment_logger.get_deployment(&deployment.id).await?
+        self.deployment_logger
+            .get_deployment(&deployment.id)
+            .await?
             .ok_or_else(|| AppError::DatabaseError("Failed to retrieve deployment".to_string()))
     }
 
@@ -210,16 +236,19 @@ impl ScriptEngine {
             }
 
             let context = ExecutionContext::new(Some(server.clone()), whoami::username());
-            
-            match self.execute_steps_on_server(
-                script,
-                deployment,
-                server,
-                &script.steps,
-                variables,
-                &context,
-                cancel_flag.clone(),
-            ).await {
+
+            match self
+                .execute_steps_on_server(
+                    script,
+                    deployment,
+                    server,
+                    &script.steps,
+                    variables,
+                    &context,
+                    cancel_flag.clone(),
+                )
+                .await
+            {
                 Ok(status) => {
                     if status == DeploymentStatus::Failed {
                         overall_status = DeploymentStatus::Partial;
@@ -252,15 +281,18 @@ impl ScriptEngine {
         cancel_flag: Arc<AtomicBool>,
     ) -> Result<DeploymentStatus> {
         use tokio::sync::Semaphore;
-        
+
         // Limit concurrent SSH connections to prevent resource exhaustion
         let max_concurrent = Arc::new(Semaphore::new(10));
         let mut handles = Vec::new();
 
         for server in servers {
-            let permit = max_concurrent.clone().acquire_owned().await
+            let permit = max_concurrent
+                .clone()
+                .acquire_owned()
+                .await
                 .map_err(|e| AppError::CommandFailed(format!("Semaphore error: {}", e)))?;
-            
+
             let script_clone = script.clone();
             let deployment_id = deployment.id.clone();
             let server_clone = server.clone();
@@ -273,7 +305,7 @@ impl ScriptEngine {
             let handle = tokio::spawn(async move {
                 let _permit = permit; // Hold permit until task completes
                 let context = ExecutionContext::new(Some(server_clone.clone()), whoami::username());
-                
+
                 execute_steps_on_server_static(
                     &script_clone,
                     &deployment_id,
@@ -285,7 +317,8 @@ impl ScriptEngine {
                     ssh_client,
                     variable_resolver,
                     deployment_logger,
-                ).await
+                )
+                .await
             });
 
             handles.push(handle);
@@ -297,13 +330,11 @@ impl ScriptEngine {
 
         for handle in handles {
             match handle.await {
-                Ok(Ok(status)) => {
-                    match status {
-                        DeploymentStatus::Failed => any_failed = true,
-                        DeploymentStatus::RolledBack => any_rolled_back = true,
-                        _ => {}
-                    }
-                }
+                Ok(Ok(status)) => match status {
+                    DeploymentStatus::Failed => any_failed = true,
+                    DeploymentStatus::RolledBack => any_rolled_back = true,
+                    _ => {}
+                },
                 Ok(Err(_)) => any_failed = true,
                 Err(_) => any_failed = true,
             }
@@ -319,7 +350,6 @@ impl ScriptEngine {
             Ok(DeploymentStatus::Success)
         }
     }
-
 
     /// Execute steps on a single server
     /// Requirements: 5.1, 5.3, 5.4, 5.5, 5.6, 5.7
@@ -344,7 +374,8 @@ impl ScriptEngine {
             self.ssh_client.clone(),
             self.variable_resolver.clone(),
             self.deployment_logger.clone(),
-        ).await
+        )
+        .await
     }
 
     /// Execute a dry-run showing commands without executing
@@ -355,12 +386,15 @@ impl ScriptEngine {
         config: ExecutionConfig,
     ) -> Result<DryRunResult> {
         // Validate required variables
-        self.variable_resolver.validate_required(script, &config.variables)?;
+        self.variable_resolver
+            .validate_required(script, &config.variables)?;
 
         // Get servers
         let servers = self.get_servers(&config.server_ids).await?;
         if servers.is_empty() {
-            return Err(AppError::ValidationError("No servers specified for deployment".to_string()));
+            return Err(AppError::ValidationError(
+                "No servers specified for deployment".to_string(),
+            ));
         }
 
         let mut dry_run_servers = Vec::new();
@@ -388,14 +422,18 @@ impl ScriptEngine {
                 let mut step_warnings = Vec::new();
 
                 // Resolve commands with variables
-                let resolved_commands: Vec<String> = step.commands.iter()
+                let resolved_commands: Vec<String> = step
+                    .commands
+                    .iter()
                     .map(|cmd| {
-                        self.variable_resolver.resolve_with_script(
-                            cmd,
-                            &config.variables,
-                            &context,
-                            &script.variables,
-                        ).unwrap_or_else(|_| cmd.clone())
+                        self.variable_resolver
+                            .resolve_with_script(
+                                cmd,
+                                &config.variables,
+                                &context,
+                                &script.variables,
+                            )
+                            .unwrap_or_else(|_| cmd.clone())
                     })
                     .collect();
 
@@ -405,11 +443,21 @@ impl ScriptEngine {
                         // Extract first word (command name)
                         if let Some(cmd_name) = cmd.split_whitespace().next() {
                             // Skip shell builtins and common constructs
-                            if !["cd", "echo", "export", "if", "then", "else", "fi", "for", "do", "done", "while", "{", "}"].contains(&cmd_name) {
+                            if ![
+                                "cd", "echo", "export", "if", "then", "else", "fi", "for", "do",
+                                "done", "while", "{", "}",
+                            ]
+                            .contains(&cmd_name)
+                            {
                                 let check = format!("command -v {} >/dev/null 2>&1", cmd_name);
-                                if let Ok(result) = self.ssh_client.execute_command(server, &check, Some(5)) {
+                                if let Ok(result) =
+                                    self.ssh_client.execute_command(server, &check, Some(5))
+                                {
                                     if result.exit_code != 0 {
-                                        step_warnings.push(format!("Command '{}' may not be available", cmd_name));
+                                        step_warnings.push(format!(
+                                            "Command '{}' may not be available",
+                                            cmd_name
+                                        ));
                                     }
                                 }
                             }
@@ -419,35 +467,56 @@ impl ScriptEngine {
 
                 // Resolve working directory
                 let resolved_working_dir = step.working_dir.as_ref().map(|wd| {
-                    self.variable_resolver.resolve_with_script(
-                        wd,
-                        &config.variables,
-                        &context,
-                        &script.variables,
-                    ).unwrap_or_else(|_| wd.clone())
+                    self.variable_resolver
+                        .resolve_with_script(wd, &config.variables, &context, &script.variables)
+                        .unwrap_or_else(|_| wd.clone())
                 });
 
                 // Deep validation: check working directory exists
                 if config.validate_prerequisites && ssh_reachable == Some(true) {
                     if let Some(ref wd) = resolved_working_dir {
                         let check = format!("test -d {}", wd);
-                        if let Ok(result) = self.ssh_client.execute_command(server, &check, Some(5)) {
+                        if let Ok(result) = self.ssh_client.execute_command(server, &check, Some(5))
+                        {
                             if result.exit_code != 0 {
-                                step_warnings.push(format!("Working directory '{}' may not exist", wd));
+                                step_warnings
+                                    .push(format!("Working directory '{}' may not exist", wd));
                             }
                         }
                     }
                 }
 
                 // Evaluate condition if present
-                let (condition_result, will_execute, skip_reason) = if let Some(ref condition) = step.condition {
-                    match self.evaluate_condition(condition, server, &config.variables, &context, &script.variables).await {
-                        Ok(result) => (Some(result), result, if !result { Some("Condition evaluated to false".to_string()) } else { None }),
-                        Err(e) => (None, false, Some(format!("Condition evaluation failed: {}", e))),
-                    }
-                } else {
-                    (None, true, None)
-                };
+                let (condition_result, will_execute, skip_reason) =
+                    if let Some(ref condition) = step.condition {
+                        match self
+                            .evaluate_condition(
+                                condition,
+                                server,
+                                &config.variables,
+                                &context,
+                                &script.variables,
+                            )
+                            .await
+                        {
+                            Ok(result) => (
+                                Some(result),
+                                result,
+                                if !result {
+                                    Some("Condition evaluated to false".to_string())
+                                } else {
+                                    None
+                                },
+                            ),
+                            Err(e) => (
+                                None,
+                                false,
+                                Some(format!("Condition evaluation failed: {}", e)),
+                            ),
+                        }
+                    } else {
+                        (None, true, None)
+                    };
 
                 dry_run_steps.push(DryRunStep {
                     step_id: step.id.clone(),
@@ -483,7 +552,7 @@ impl ScriptEngine {
     /// Requirements: 6.6
     pub async fn cancel(&self, deployment_id: &str) -> Result<()> {
         let running = self.running_deployments.lock().await;
-        
+
         if let Some(deployment) = running.get(deployment_id) {
             deployment.cancel_flag.store(true, Ordering::Relaxed);
             Ok(())
@@ -531,7 +600,7 @@ impl ScriptEngine {
     async fn get_servers(&self, server_ids: &[String]) -> Result<Vec<Server>> {
         let mut servers = Vec::new();
         let manager = self.server_manager.lock().await;
-        
+
         for id in server_ids {
             if let Some(server) = manager.get_server(id).await? {
                 servers.push(server);
@@ -539,7 +608,7 @@ impl ScriptEngine {
                 return Err(AppError::ServerNotFound(id.clone()));
             }
         }
-        
+
         Ok(servers)
     }
 
@@ -552,7 +621,7 @@ impl ScriptEngine {
     ) -> Result<Deployment> {
         if script.rollback_steps.is_empty() {
             return Err(AppError::ValidationError(
-                "Script has no rollback steps defined".to_string()
+                "Script has no rollback steps defined".to_string(),
             ));
         }
 
@@ -560,32 +629,40 @@ impl ScriptEngine {
         let servers = self.get_servers(&original_deployment.server_ids).await?;
 
         // Create rollback deployment record
-        let rollback_deployment = self.deployment_logger.create_rollback_deployment(
-            &original_deployment.id,
-            &script.id,
-            &script.name,
-            &original_deployment.server_ids,
-            &original_deployment.variables,
-            &whoami::username(),
-        ).await?;
+        let rollback_deployment = self
+            .deployment_logger
+            .create_rollback_deployment(
+                &original_deployment.id,
+                &script.id,
+                &script.name,
+                &original_deployment.server_ids,
+                &original_deployment.variables,
+                &whoami::username(),
+            )
+            .await?;
 
         // Register for cancellation
         let cancel_flag = Arc::new(AtomicBool::new(false));
         {
             let mut running = self.running_deployments.lock().await;
-            running.insert(rollback_deployment.id.clone(), RunningDeployment {
-                cancel_flag: cancel_flag.clone(),
-            });
+            running.insert(
+                rollback_deployment.id.clone(),
+                RunningDeployment {
+                    cancel_flag: cancel_flag.clone(),
+                },
+            );
         }
 
         // Execute rollback steps
-        let result = self.execute_sequential(
-            script,
-            &rollback_deployment,
-            &servers,
-            &original_deployment.variables,
-            cancel_flag.clone(),
-        ).await;
+        let result = self
+            .execute_sequential(
+                script,
+                &rollback_deployment,
+                &servers,
+                &original_deployment.variables,
+                cancel_flag.clone(),
+            )
+            .await;
 
         // Remove from running
         {
@@ -598,7 +675,9 @@ impl ScriptEngine {
             Ok(status) => status.clone(),
             Err(_) => DeploymentStatus::RollbackFailed,
         };
-        self.deployment_logger.complete_deployment(&rollback_deployment.id, final_status.clone()).await?;
+        self.deployment_logger
+            .complete_deployment(&rollback_deployment.id, final_status.clone())
+            .await?;
 
         // Update original deployment status
         let original_status = if final_status == DeploymentStatus::Success {
@@ -606,14 +685,19 @@ impl ScriptEngine {
         } else {
             DeploymentStatus::RollbackFailed
         };
-        self.deployment_logger.update_deployment_status(&original_deployment.id, original_status).await?;
+        self.deployment_logger
+            .update_deployment_status(&original_deployment.id, original_status)
+            .await?;
 
         // Return rollback deployment
-        self.deployment_logger.get_deployment(&rollback_deployment.id).await?
-            .ok_or_else(|| AppError::DatabaseError("Failed to retrieve rollback deployment".to_string()))
+        self.deployment_logger
+            .get_deployment(&rollback_deployment.id)
+            .await?
+            .ok_or_else(|| {
+                AppError::DatabaseError("Failed to retrieve rollback deployment".to_string())
+            })
     }
 }
-
 
 /// Static function for executing steps on a server (used for parallel execution)
 /// Requirements: 5.1, 5.3, 5.4, 5.5, 5.6, 5.7
@@ -638,13 +722,15 @@ async fn execute_steps_on_server_static(
         }
 
         // Log step start
-        deployment_logger.log_step_start(
-            deployment_id,
-            &step.id,
-            &step.name,
-            &server.id,
-            &server.name,
-        ).await?;
+        deployment_logger
+            .log_step_start(
+                deployment_id,
+                &step.id,
+                &step.name,
+                &server.id,
+                &server.name,
+            )
+            .await?;
 
         // Evaluate condition if present (Requirements: 5.6)
         if let Some(ref condition) = step.condition {
@@ -664,20 +750,16 @@ async fn execute_steps_on_server_static(
             match condition_result {
                 Ok(output) if output.exit_code != 0 => {
                     // Condition is false, skip step
-                    deployment_logger.log_step_skipped(
-                        deployment_id,
-                        &step.id,
-                        &server.id,
-                    ).await?;
+                    deployment_logger
+                        .log_step_skipped(deployment_id, &step.id, &server.id)
+                        .await?;
                     continue;
                 }
                 Err(_) => {
                     // Condition evaluation failed, skip step
-                    deployment_logger.log_step_skipped(
-                        deployment_id,
-                        &step.id,
-                        &server.id,
-                    ).await?;
+                    deployment_logger
+                        .log_step_skipped(deployment_id, &step.id, &server.id)
+                        .await?;
                     continue;
                 }
                 _ => {} // Condition is true, proceed
@@ -694,17 +776,15 @@ async fn execute_steps_on_server_static(
             cancel_flag.clone(),
             ssh_client.clone(),
             variable_resolver.clone(),
-        ).await;
+        )
+        .await;
 
         match step_result {
             Ok(result) => {
                 // Log step completion
-                deployment_logger.log_step_complete(
-                    deployment_id,
-                    &step.id,
-                    &server.id,
-                    &result,
-                ).await?;
+                deployment_logger
+                    .log_step_complete(deployment_id, &step.id, &server.id, &result)
+                    .await?;
 
                 // Check if step failed
                 if result.exit_code != 0 {
@@ -733,12 +813,9 @@ async fn execute_steps_on_server_static(
                     stderr: e.to_string(),
                     duration_ms: 0,
                 };
-                deployment_logger.log_step_complete(
-                    deployment_id,
-                    &step.id,
-                    &server.id,
-                    &error_result,
-                ).await?;
+                deployment_logger
+                    .log_step_complete(deployment_id, &step.id, &server.id, &error_result)
+                    .await?;
 
                 match step.on_error {
                     OnError::Abort => {
@@ -769,7 +846,8 @@ async fn execute_steps_on_server_static(
                 ssh_client,
                 variable_resolver,
                 deployment_logger,
-            ).await;
+            )
+            .await;
 
             match rollback_result {
                 Ok(status) => {
@@ -814,13 +892,15 @@ async fn execute_rollback_steps_static(
             return Err(AppError::CommandFailed("Rollback cancelled".to_string()));
         }
 
-        deployment_logger.log_step_start(
-            deployment_id,
-            &step.id,
-            &format!("[Rollback] {}", step.name),
-            &server.id,
-            &server.name,
-        ).await?;
+        deployment_logger
+            .log_step_start(
+                deployment_id,
+                &step.id,
+                &format!("[Rollback] {}", step.name),
+                &server.id,
+                &server.name,
+            )
+            .await?;
 
         let step_result = execute_single_step(
             step,
@@ -831,22 +911,20 @@ async fn execute_rollback_steps_static(
             cancel_flag.clone(),
             ssh_client.clone(),
             variable_resolver.clone(),
-        ).await;
+        )
+        .await;
 
         match step_result {
             Ok(result) => {
-                deployment_logger.log_step_complete(
-                    deployment_id,
-                    &step.id,
-                    &server.id,
-                    &result,
-                ).await?;
+                deployment_logger
+                    .log_step_complete(deployment_id, &step.id, &server.id, &result)
+                    .await?;
 
                 if result.exit_code == 0 {
                     succeeded_steps.push(idx);
                 } else {
                     failed_steps.push((idx, result.stderr.clone()));
-                    
+
                     // Check if this is a critical rollback step
                     // Critical steps use on_error: Abort
                     if step.on_error == crate::scripts::models::OnError::Abort {
@@ -868,12 +946,9 @@ async fn execute_rollback_steps_static(
                     stderr: e.to_string(),
                     duration_ms: 0,
                 };
-                deployment_logger.log_step_complete(
-                    deployment_id,
-                    &step.id,
-                    &server.id,
-                    &error_result,
-                ).await?;
+                deployment_logger
+                    .log_step_complete(deployment_id, &step.id, &server.id, &error_result)
+                    .await?;
 
                 failed_steps.push((idx, e.to_string()));
 
@@ -895,7 +970,6 @@ async fn execute_rollback_steps_static(
     })
 }
 
-
 /// Execute a single step on a server
 /// Requirements: 5.1, 5.7
 async fn execute_single_step(
@@ -915,19 +989,15 @@ async fn execute_single_step(
 
     // Build all commands into a single script to avoid multiple SSH connections
     let mut script_commands = Vec::new();
-    
+
     for command in &step.commands {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(AppError::CommandFailed("Command cancelled".to_string()));
         }
 
         // Resolve variables in command
-        let resolved_command = variable_resolver.resolve_with_script(
-            command,
-            variables,
-            context,
-            script_variables,
-        )?;
+        let resolved_command =
+            variable_resolver.resolve_with_script(command, variables, context, script_variables)?;
 
         // Build full command with working directory
         let full_command = if let Some(ref working_dir) = step.working_dir {
@@ -944,14 +1014,13 @@ async fn execute_single_step(
 
         // Add environment variables
         let full_command = if !step.env.is_empty() {
-            let env_prefix: String = step.env.iter()
+            let env_prefix: String = step
+                .env
+                .iter()
                 .map(|(k, v)| {
-                    let resolved_v = variable_resolver.resolve_with_script(
-                        v,
-                        variables,
-                        context,
-                        script_variables,
-                    ).unwrap_or_else(|_| v.clone());
+                    let resolved_v = variable_resolver
+                        .resolve_with_script(v, variables, context, script_variables)
+                        .unwrap_or_else(|_| v.clone());
                     format!("{}={}", k, shell_escape(&resolved_v))
                 })
                 .collect::<Vec<_>>()
@@ -963,7 +1032,7 @@ async fn execute_single_step(
 
         // Wrap sudo commands with password if provided
         let full_command = wrap_sudo_with_password(&full_command, &sudo_password);
-        
+
         script_commands.push(full_command);
     }
 
@@ -975,30 +1044,38 @@ async fn execute_single_step(
         .map(|(i, cmd)| {
             format!(
                 "{{ {}; }} || {{ echo 'Command {} failed' >&2; exit 1; }}",
-                cmd, i + 1
+                cmd,
+                i + 1
             )
         })
         .collect::<Vec<_>>()
         .join("; ");
-    
+
     // Execute all commands in a single SSH connection
     let timeout_secs = step.timeout.or(Some(300)); // Default 5 minute timeout
-    
-    eprintln!("[DEBUG] Executing step '{}' with {} commands (timeout: {:?}s)", 
-              step.name, script_commands.len(), timeout_secs);
-    
+
+    eprintln!(
+        "[DEBUG] Executing step '{}' with {} commands (timeout: {:?}s)",
+        step.name,
+        script_commands.len(),
+        timeout_secs
+    );
+
     let result = ssh_client.execute_command_with_cancel(
         server,
         &combined_script,
         timeout_secs,
         cancel_flag.clone(),
     );
-    
+
     let duration = start.elapsed();
 
     match result {
         Ok(output) => {
-            eprintln!("[DEBUG] Step '{}' completed with exit code: {}", step.name, output.exit_code);
+            eprintln!(
+                "[DEBUG] Step '{}' completed with exit code: {}",
+                step.name, output.exit_code
+            );
             Ok(StepResult {
                 exit_code: output.exit_code,
                 stdout: output.stdout,
@@ -1013,10 +1090,7 @@ async fn execute_single_step(
                 stdout: String::new(),
                 stderr: format!(
                     "[error] Step '{}' failed: {}\nCommand: {}\nServer: {}",
-                    step.name,
-                    e,
-                    combined_script,
-                    server.name
+                    step.name, e, combined_script, server.name
                 ),
                 duration_ms: duration.as_millis() as u64,
             })
@@ -1029,7 +1103,7 @@ async fn execute_single_step(
 /// -S reads password from stdin, -p '' suppresses the password prompt
 fn wrap_sudo_with_password(command: &str, sudo_password: &Option<String>) -> String {
     use regex::Regex;
-    
+
     if let Some(ref password) = sudo_password {
         // Use regex for more precise matching of sudo commands
         let sudo_regex = Regex::new(r"\bsudo\s+").unwrap();
@@ -1051,7 +1125,9 @@ fn wrap_sudo_with_password(command: &str, sudo_password: &Option<String>) -> Str
 
 /// Escape a string for shell usage
 fn shell_escape(s: &str) -> String {
-    if s.contains(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == '$' || c == '`' || c == '\\') {
+    if s.contains(|c: char| {
+        c.is_whitespace() || c == '\'' || c == '"' || c == '$' || c == '`' || c == '\\'
+    }) {
         format!("'{}'", s.replace('\'', "'\\''"))
     } else {
         s.to_string()
@@ -1120,11 +1196,14 @@ mod tests {
 
     #[test]
     fn test_execution_config_defaults() {
-        let config: ExecutionConfig = serde_json::from_str(r#"{
+        let config: ExecutionConfig = serde_json::from_str(
+            r#"{
             "script_id": "test",
             "server_ids": ["server1"],
             "variables": {}
-        }"#).unwrap();
+        }"#,
+        )
+        .unwrap();
 
         assert!(!config.parallel);
         assert!(!config.dry_run);

@@ -1,8 +1,8 @@
+use super::models::*;
 use crate::cache::CacheManager;
 use crate::error::{AppError, Result};
 use crate::files::FileManager;
 use crate::server::Server;
-use super::models::*;
 use std::sync::Arc;
 
 /// Manages synchronization between local cache and remote files
@@ -21,7 +21,7 @@ impl SyncEngine {
     }
 
     /// Check for conflicts between local cache and remote file
-    /// 
+    ///
     /// Compares the remote file's modification time with the cached modification time.
     /// Returns appropriate ConflictStatus based on the comparison.
     pub async fn check_for_conflicts(
@@ -30,18 +30,21 @@ impl SyncEngine {
         remote_path: &str,
     ) -> Result<ConflictStatus> {
         // Get cached file metadata
-        let cached = self.cache_manager
+        let cached = self
+            .cache_manager
             .get_cached_file(&server.id, remote_path)
             .await?;
 
         // Try to get remote file modification time
-        let remote_time_result = self.file_manager.get_remote_modified_time(server, remote_path);
+        let remote_time_result = self
+            .file_manager
+            .get_remote_modified_time(server, remote_path);
 
         match (cached, remote_time_result) {
             // Both exist - compare modification times
             (Some(cached_file), Ok(remote_time)) => {
                 let local_time = cached_file.remote_modified_at;
-                
+
                 if remote_time > local_time {
                     // Remote file has been modified since we cached it
                     Ok(ConflictStatus::RemoteModified {
@@ -54,17 +57,11 @@ impl SyncEngine {
                 }
             }
             // Only local cache exists (remote file was deleted or doesn't exist)
-            (Some(_), Err(_)) => {
-                Ok(ConflictStatus::LocalOnly)
-            }
+            (Some(_), Err(_)) => Ok(ConflictStatus::LocalOnly),
             // Only remote exists (not cached locally)
-            (None, Ok(_)) => {
-                Ok(ConflictStatus::RemoteOnly)
-            }
+            (None, Ok(_)) => Ok(ConflictStatus::RemoteOnly),
             // Neither exists - this shouldn't happen in normal usage
-            (None, Err(e)) => {
-                Err(e)
-            }
+            (None, Err(e)) => Err(e),
         }
     }
 
@@ -78,15 +75,21 @@ impl SyncEngine {
         match strategy {
             SyncStrategy::UseLocal => {
                 // Read local cached content and upload to remote
-                let local_content = self.cache_manager
+                let local_content = self
+                    .cache_manager
                     .read_cached_content(&server.id, remote_path)
                     .await?
-                    .ok_or_else(|| AppError::FileOperationFailed(
-                        format!("No local cache found for: {}", remote_path)
-                    ))?;
+                    .ok_or_else(|| {
+                        AppError::FileOperationFailed(format!(
+                            "No local cache found for: {}",
+                            remote_path
+                        ))
+                    })?;
 
                 let content_str = String::from_utf8_lossy(&local_content).to_string();
-                self.file_manager.save_file(server, remote_path, &content_str).await?;
+                self.file_manager
+                    .save_file(server, remote_path, &content_str)
+                    .await?;
 
                 Ok(SyncResult {
                     success: true,
@@ -104,37 +107,34 @@ impl SyncEngine {
                     message: format!("Downloaded remote version: {}", remote_path),
                 })
             }
-            SyncStrategy::Manual => {
-                Ok(SyncResult {
-                    success: false,
-                    strategy: SyncStrategy::Manual,
-                    message: "Manual merge required".to_string(),
-                })
-            }
+            SyncStrategy::Manual => Ok(SyncResult {
+                success: false,
+                strategy: SyncStrategy::Manual,
+                message: "Manual merge required".to_string(),
+            }),
         }
     }
 
     /// Create a backup of the remote file
     /// Returns the backup path
-    pub async fn create_backup(
-        &self,
-        server: &Server,
-        remote_path: &str,
-    ) -> Result<String> {
+    pub async fn create_backup(&self, server: &Server, remote_path: &str) -> Result<String> {
         let backup_path = format!("{}.backup.{}", remote_path, chrono::Utc::now().timestamp());
-        
+
         // Download current remote content
         let content = self.file_manager.download_file(server, remote_path).await?;
-        
+
         // Save to backup path
-        self.file_manager.save_file(server, &backup_path, &content.content).await?;
-        
+        self.file_manager
+            .save_file(server, &backup_path, &content.content)
+            .await?;
+
         Ok(backup_path)
     }
 
     /// Get the remote file modification time
     pub fn get_remote_modified_time(&self, server: &Server, remote_path: &str) -> Result<i64> {
-        self.file_manager.get_remote_modified_time(server, remote_path)
+        self.file_manager
+            .get_remote_modified_time(server, remote_path)
     }
 
     /// Get a reference to the cache manager

@@ -1,0 +1,5 @@
+# Clippy configuration for CargoShip
+# Some functions intentionally have many arguments due to their nature
+
+# Allow functions with up to 12 arguments (default is 7)
+too-many-arguments-threshold = 12

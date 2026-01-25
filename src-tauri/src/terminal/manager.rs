@@ -57,30 +57,34 @@ impl TerminalManager {
     /// OPTIMIZATION: Batch write with automatic flush
     pub fn write_to_session(&self, session_id: &str, data: &[u8]) -> Result<()> {
         let mut sessions = self.sessions.write().unwrap();
-        let session = sessions.get_mut(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Session not found: {}", session_id))
+        })?;
         session.write(data)
     }
 
     /// OPTIMIZATION: Explicit flush for buffered writes
     pub fn flush_session(&self, session_id: &str) -> Result<()> {
         let mut sessions = self.sessions.write().unwrap();
-        let session = sessions.get_mut(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Session not found: {}", session_id))
+        })?;
         session.flush()
     }
 
     pub fn read_from_session(&self, session_id: &str) -> Result<Vec<u8>> {
         let mut sessions = self.sessions.write().unwrap();
-        let session = sessions.get_mut(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Session not found: {}", session_id))
+        })?;
         session.read()
     }
 
     pub fn resize_session(&self, session_id: &str, cols: u16, rows: u16) -> Result<()> {
         let mut sessions = self.sessions.write().unwrap();
-        let session = sessions.get_mut(session_id)
-            .ok_or_else(|| AppError::ServerNotFound(format!("Session not found: {}", session_id)))?;
+        let session = sessions.get_mut(session_id).ok_or_else(|| {
+            AppError::ServerNotFound(format!("Session not found: {}", session_id))
+        })?;
         session.resize(cols, rows)
     }
 
@@ -113,22 +117,23 @@ impl TerminalManager {
     /// Internal cleanup logic (must be called with write lock)
     fn cleanup_sessions_internal(&self, sessions: &mut HashMap<String, TerminalSession>) -> usize {
         let before = sessions.len();
-        sessions.retain(|_, session| {
-            session.is_active() && session.idle_time() < IDLE_TIMEOUT
-        });
+        sessions.retain(|_, session| session.is_active() && session.idle_time() < IDLE_TIMEOUT);
         before - sessions.len()
     }
 
     /// OPTIMIZATION: Get session info for monitoring
     pub fn get_session_info(&self) -> Vec<SessionInfo> {
         let sessions = self.sessions.read().unwrap();
-        sessions.iter().map(|(id, session)| SessionInfo {
-            session_id: id.clone(),
-            server_id: session.server_id.clone(),
-            pty_size: session.get_pty_size(),
-            is_active: session.is_active(),
-            idle_seconds: session.idle_time().as_secs(),
-        }).collect()
+        sessions
+            .iter()
+            .map(|(id, session)| SessionInfo {
+                session_id: id.clone(),
+                server_id: session.server_id.clone(),
+                pty_size: session.get_pty_size(),
+                is_active: session.is_active(),
+                idle_seconds: session.idle_time().as_secs(),
+            })
+            .collect()
     }
 
     pub fn close_all(&self) {

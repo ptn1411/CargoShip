@@ -1,3 +1,18 @@
+// Temporary allows during development - remove before stable release
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::collapsible_str_replace)]
+#![allow(clippy::get_first)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::trim_split_whitespace)]
+#![allow(clippy::manual_pattern_char_comparison)]
+#![allow(clippy::manual_range_contains)]
+#![allow(clippy::len_zero)]
+#![allow(clippy::derivable_impls)]
+#![allow(clippy::if_same_then_else)]
+
 pub mod batch;
 pub mod cache;
 pub mod credentials;
@@ -20,26 +35,49 @@ pub mod sync;
 pub mod terminal;
 pub mod transfer;
 
-use batch::{BatchExecutor, BatchResult, HealthCheckResult, BatchSummary, HealthCheckSummary};
+use batch::{BatchExecutor, BatchResult, BatchSummary, HealthCheckResult, HealthCheckSummary};
 use cache::CacheManager;
 use credentials::CredentialStore;
-use database::{DatabaseManager, DatabaseConnection, DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, DatabaseUser, QueryResult, TableData, CreateConnectionInput, UpdateConnectionInput, CreateUserInput, ExecuteQueryInput, FetchTableDataInput, UpdateRowInput, InsertRowInput, DeleteRowsInput, ConnectionTestResult, CreateDatabaseInput, CreateTableInput, QueryHistoryEntry, SavedQuery, SaveQueryInput, BackupOptions, BackupResult, RestoreOptions, RestoreResult, BackupFileInfo, BackupHistoryEntry};
-use docker::{DockerManager, DockerContainer, DockerImage, DockerVolume, DockerNetwork, DockerInfo, ContainerStats, ContainerLogs, CreateContainerInput, PullImageInput, CreateVolumeInput, CreateNetworkInput, DockerComposeProject};
+use database::{
+    ColumnInfo, ConnectionTestResult, CreateConnectionInput, CreateDatabaseInput, CreateTableInput,
+    CreateUserInput, DatabaseConnection, DatabaseInfo, DatabaseManager, DatabaseUser,
+    DeleteRowsInput, ExecuteQueryInput, FetchTableDataInput, IndexInfo, InsertRowInput,
+    QueryHistoryEntry, QueryResult, SaveQueryInput, SavedQuery, TableData, TableInfo,
+    UpdateConnectionInput, UpdateRowInput,
+};
 use db::init_database;
-use deployments::{DeploymentLogger, Deployment, DeploymentLog, DeploymentFilters, ExportFormat};
-use favorites::{FavoritesManager, Favorite, FavoriteType, ActivityLog, CreateActivityInput};
-use files::{Breadcrumb, FileBrowser, FileContent, FileManager, path_to_breadcrumbs};
-use groups::{GroupManager, ServerGroup, CreateGroupInput, UpdateGroupInput};
-use monitor::{MonitorService, ServerMetrics, ServerStatus, MetricType, MetricPoint, AlertConfig, Alert, CreateAlertInput, UpdateAlertInput};
-use nginx::{NginxManager, NginxDomain, NginxStatus, SslCertificate, SslResult, ConfigSnippet, CreateDomainInput, UpdateDomainInput};
-use scripts::{ScriptManager, DeploymentScript, CreateScriptInput, UpdateScriptInput, ValidationResult, TemplateLibrary, TemplateInfo, RollbackManager, RollbackInfo, ScriptEngine, ExecutionConfig, DryRunResult};
+use deployments::{Deployment, DeploymentFilters, DeploymentLog, DeploymentLogger, ExportFormat};
+use docker::{
+    ContainerLogs, ContainerStats, CreateContainerInput, CreateNetworkInput, CreateVolumeInput,
+    DockerComposeProject, DockerContainer, DockerImage, DockerInfo, DockerManager, DockerNetwork,
+    DockerVolume, PullImageInput,
+};
+use favorites::{ActivityLog, CreateActivityInput, Favorite, FavoriteType, FavoritesManager};
+use files::{path_to_breadcrumbs, Breadcrumb, FileBrowser, FileContent, FileManager};
+use groups::{CreateGroupInput, GroupManager, ServerGroup, UpdateGroupInput};
+use monitor::{
+    Alert, AlertConfig, CreateAlertInput, MetricPoint, MetricType, MonitorService, ServerMetrics,
+    ServerStatus, UpdateAlertInput,
+};
+use nginx::{
+    ConfigSnippet, CreateDomainInput, NginxDomain, NginxManager, NginxStatus, SslCertificate,
+    SslResult, UpdateDomainInput,
+};
+use scripts::{
+    CreateScriptInput, DeploymentScript, DryRunResult, ExecutionConfig, RollbackInfo,
+    RollbackManager, ScriptEngine, ScriptManager, TemplateInfo, TemplateLibrary, UpdateScriptInput,
+    ValidationResult,
+};
 use server::{CreateServerInput, Server, ServerManager, UpdateServerInput};
-use snippets::{SnippetLibrary, Snippet, CreateSnippetInput, UpdateSnippetInput, ImportResult as SnippetImportResult};
 use settings::{SettingsManager, TerminalSettings};
-use ssh::{CommandOutput, ConnectionStatus, ServerInfo, SshClient};
+use snippets::{
+    CreateSnippetInput, ImportResult as SnippetImportResult, Snippet, SnippetLibrary,
+    UpdateSnippetInput,
+};
 use ssh::ConnectionPool;
-use ssh::{SshKeyManager, SshKey, CreateSshKeyInput, GeneratedKey};
-use sync::{ConflictResolver, ConflictResolution, ConflictStatus, FileDiff, SyncEngine};
+use ssh::{CommandOutput, ConnectionStatus, ServerInfo, SshClient};
+use ssh::{CreateSshKeyInput, GeneratedKey, SshKey, SshKeyManager};
+use sync::{ConflictResolution, ConflictResolver, ConflictStatus, FileDiff, SyncEngine};
 use terminal::TerminalManager;
 use transfer::{TransferManager, TransferRequest, TransferStatus};
 
@@ -105,8 +143,13 @@ pub struct CommandOutputPayload {
 // Tauri Commands
 
 #[tauri::command]
-async fn list_servers(state: tauri::State<'_, AppState>) -> std::result::Result<Vec<Server>, String> {
-    state.server_manager.lock().await
+async fn list_servers(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<Server>, String> {
+    state
+        .server_manager
+        .lock()
+        .await
         .list_servers()
         .await
         .map_err(|e| e.to_string())
@@ -117,7 +160,10 @@ async fn add_server(
     state: tauri::State<'_, AppState>,
     input: CreateServerInput,
 ) -> std::result::Result<Server, String> {
-    state.server_manager.lock().await
+    state
+        .server_manager
+        .lock()
+        .await
         .create_server(input)
         .await
         .map_err(|e| e.to_string())
@@ -129,7 +175,10 @@ async fn update_server(
     id: String,
     input: UpdateServerInput,
 ) -> std::result::Result<Server, String> {
-    state.server_manager.lock().await
+    state
+        .server_manager
+        .lock()
+        .await
         .update_server(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -140,7 +189,10 @@ async fn delete_server(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.server_manager.lock().await
+    state
+        .server_manager
+        .lock()
+        .await
         .delete_server(&id)
         .await
         .map_err(|e| e.to_string())
@@ -157,7 +209,10 @@ async fn create_group(
     state: tauri::State<'_, AppState>,
     input: CreateGroupInput,
 ) -> std::result::Result<ServerGroup, String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .create_group(input)
         .await
         .map_err(|e| e.to_string())
@@ -169,7 +224,10 @@ async fn create_group(
 async fn list_groups(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<ServerGroup>, String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .list_groups()
         .await
         .map_err(|e| e.to_string())
@@ -182,7 +240,10 @@ async fn get_group(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<ServerGroup, String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .get_group(&id)
         .await
         .map_err(|e| e.to_string())?
@@ -197,7 +258,10 @@ async fn update_group(
     id: String,
     input: UpdateGroupInput,
 ) -> std::result::Result<ServerGroup, String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .update_group(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -210,7 +274,10 @@ async fn delete_group(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .delete_group(&id)
         .await
         .map_err(|e| e.to_string())
@@ -224,7 +291,10 @@ async fn add_server_to_group(
     group_id: String,
     server_id: String,
 ) -> std::result::Result<(), String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .add_server_to_group(&group_id, &server_id)
         .await
         .map_err(|e| e.to_string())
@@ -238,7 +308,10 @@ async fn remove_server_from_group(
     group_id: String,
     server_id: String,
 ) -> std::result::Result<(), String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .remove_server_from_group(&group_id, &server_id)
         .await
         .map_err(|e| e.to_string())
@@ -251,7 +324,10 @@ async fn get_servers_in_group(
     state: tauri::State<'_, AppState>,
     group_id: String,
 ) -> std::result::Result<Vec<Server>, String> {
-    state.group_manager.lock().await
+    state
+        .group_manager
+        .lock()
+        .await
         .get_servers_in_group(&group_id)
         .await
         .map_err(|e| e.to_string())
@@ -269,7 +345,8 @@ async fn batch_execute_command(
     server_ids: Vec<String>,
     command: String,
 ) -> std::result::Result<Vec<BatchResult>, String> {
-    state.batch_executor
+    state
+        .batch_executor
         .execute_command(&server_ids, &command)
         .await
         .map_err(|e| e.to_string())
@@ -284,7 +361,8 @@ async fn batch_execute_parallel(
     command: String,
     max_parallel: usize,
 ) -> std::result::Result<Vec<BatchResult>, String> {
-    state.batch_executor
+    state
+        .batch_executor
         .execute_parallel(&server_ids, &command, max_parallel)
         .await
         .map_err(|e| e.to_string())
@@ -297,7 +375,8 @@ async fn batch_health_check(
     state: tauri::State<'_, AppState>,
     server_ids: Vec<String>,
 ) -> std::result::Result<Vec<HealthCheckResult>, String> {
-    state.batch_executor
+    state
+        .batch_executor
         .health_check(&server_ids)
         .await
         .map_err(|e| e.to_string())
@@ -311,11 +390,12 @@ async fn batch_execute_with_summary(
     server_ids: Vec<String>,
     command: String,
 ) -> std::result::Result<BatchSummary, String> {
-    let results = state.batch_executor
+    let results = state
+        .batch_executor
         .execute_command(&server_ids, &command)
         .await
         .map_err(|e| e.to_string())?;
-    
+
     Ok(BatchSummary::from_results(results))
 }
 
@@ -326,11 +406,12 @@ async fn batch_health_check_with_summary(
     state: tauri::State<'_, AppState>,
     server_ids: Vec<String>,
 ) -> std::result::Result<HealthCheckSummary, String> {
-    let results = state.batch_executor
+    let results = state
+        .batch_executor
         .health_check(&server_ids)
         .await
         .map_err(|e| e.to_string())?;
-    
+
     Ok(HealthCheckSummary::from_results(results))
 }
 
@@ -339,13 +420,18 @@ async fn test_connection(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<ConnectionStatus, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.ssh_client.test_connection(&server)
+    state
+        .ssh_client
+        .test_connection(&server)
         .map_err(|e| e.to_string())
 }
 
@@ -354,13 +440,18 @@ async fn get_server_info(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<ServerInfo, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.ssh_client.get_server_info(&server)
+    state
+        .ssh_client
+        .get_server_info(&server)
         .map_err(|e| e.to_string())
 }
 
@@ -370,13 +461,18 @@ async fn list_remote_files(
     server_id: String,
     path: String,
 ) -> std::result::Result<Vec<files::FileEntry>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_browser.list_directory(&server, &path)
+    state
+        .file_browser
+        .list_directory(&server, &path)
         .map_err(|e| e.to_string())
 }
 
@@ -387,13 +483,18 @@ async fn search_files(
     path: String,
     pattern: String,
 ) -> std::result::Result<Vec<files::FileEntry>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_browser.search_files(&server, &path, &pattern)
+    state
+        .file_browser
+        .search_files(&server, &path, &pattern)
         .map_err(|e| e.to_string())
 }
 
@@ -403,13 +504,18 @@ async fn get_file_info(
     server_id: String,
     path: String,
 ) -> std::result::Result<files::FileEntry, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_browser.get_file_info(&server, &path)
+    state
+        .file_browser
+        .get_file_info(&server, &path)
         .map_err(|e| e.to_string())
 }
 
@@ -423,13 +529,18 @@ async fn create_terminal_session(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<String, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.terminal_manager.create_session(&server, 80, 24)
+    state
+        .terminal_manager
+        .create_session(&server, 80, 24)
         .map_err(|e| e.to_string())
 }
 
@@ -438,7 +549,9 @@ async fn close_terminal_session(
     state: tauri::State<'_, AppState>,
     session_id: String,
 ) -> std::result::Result<(), String> {
-    state.terminal_manager.close_session(&session_id)
+    state
+        .terminal_manager
+        .close_session(&session_id)
         .map_err(|e| e.to_string())
 }
 
@@ -449,7 +562,9 @@ async fn resize_terminal(
     cols: u16,
     rows: u16,
 ) -> std::result::Result<(), String> {
-    state.terminal_manager.resize_session(&session_id, cols, rows)
+    state
+        .terminal_manager
+        .resize_session(&session_id, cols, rows)
         .map_err(|e| e.to_string())
 }
 
@@ -459,7 +574,9 @@ async fn write_terminal(
     session_id: String,
     data: Vec<u8>,
 ) -> std::result::Result<(), String> {
-    state.terminal_manager.write_to_session(&session_id, &data)
+    state
+        .terminal_manager
+        .write_to_session(&session_id, &data)
         .map_err(|e| e.to_string())
 }
 
@@ -468,7 +585,9 @@ async fn read_terminal(
     state: tauri::State<'_, AppState>,
     session_id: String,
 ) -> std::result::Result<Vec<u8>, String> {
-    state.terminal_manager.read_from_session(&session_id)
+    state
+        .terminal_manager
+        .read_from_session(&session_id)
         .map_err(|e| e.to_string())
 }
 
@@ -491,7 +610,7 @@ async fn start_terminal_stream(
     let terminal_manager = state.terminal_manager.clone();
     let active_streams = state.active_streams.clone();
     let session_id_clone = session_id.clone();
-    
+
     // Spawn a background task to poll terminal output and emit events
     tauri::async_runtime::spawn(async move {
         loop {
@@ -499,7 +618,7 @@ async fn start_terminal_stream(
             if !terminal_manager.has_session(&session_id_clone) {
                 break;
             }
-            
+
             // Read output from terminal
             match terminal_manager.read_from_session(&session_id_clone) {
                 Ok(data) if !data.is_empty() => {
@@ -517,16 +636,16 @@ async fn start_terminal_stream(
                     break;
                 }
             }
-            
+
             // Small delay to prevent busy-waiting
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         }
-        
+
         // Remove from active streams when done
         let mut streams = active_streams.lock().await;
         streams.remove(&session_id_clone);
     });
-    
+
     Ok(())
 }
 
@@ -536,11 +655,9 @@ async fn emit_connection_status(
     server_id: String,
     status: String,
 ) -> std::result::Result<(), String> {
-    let payload = ConnectionStatusPayload {
-        server_id,
-        status,
-    };
-    app_handle.emit("connection-status-changed", payload)
+    let payload = ConnectionStatusPayload { server_id, status };
+    app_handle
+        .emit("connection-status-changed", payload)
         .map_err(|e| e.to_string())
 }
 
@@ -584,7 +701,10 @@ async fn detect_multiplexer_sessions(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<MultiplexerSession>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
@@ -594,7 +714,10 @@ async fn detect_multiplexer_sessions(
 
     // Detect tmux sessions
     let tmux_cmd = "tmux list-sessions -F '#{session_name}:#{session_attached}:#{session_windows}:#{session_created}' 2>/dev/null || true";
-    if let Ok(output) = state.ssh_client.execute_command(&server, tmux_cmd, Some(10)) {
+    if let Ok(output) = state
+        .ssh_client
+        .execute_command(&server, tmux_cmd, Some(10))
+    {
         if output.exit_code == 0 && !output.stdout.trim().is_empty() {
             for line in output.stdout.lines() {
                 let parts: Vec<&str> = line.split(':').collect();
@@ -613,7 +736,10 @@ async fn detect_multiplexer_sessions(
 
     // Detect screen sessions
     let screen_cmd = "screen -ls 2>/dev/null | grep -E '^\\s+[0-9]+\\.' || true";
-    if let Ok(output) = state.ssh_client.execute_command(&server, screen_cmd, Some(10)) {
+    if let Ok(output) = state
+        .ssh_client
+        .execute_command(&server, screen_cmd, Some(10))
+    {
         if output.exit_code == 0 && !output.stdout.trim().is_empty() {
             for line in output.stdout.lines() {
                 let line = line.trim();
@@ -630,9 +756,9 @@ async fn detect_multiplexer_sessions(
                     } else {
                         name_part.to_string()
                     };
-                    
+
                     let attached = line.contains("(Attached)");
-                    
+
                     sessions.push(MultiplexerSession {
                         name,
                         multiplexer_type: "screen".to_string(),
@@ -665,7 +791,9 @@ async fn attach_multiplexer_session(
     };
 
     let data = attach_cmd.into_bytes();
-    state.terminal_manager.write_to_session(&session_id, &data)
+    state
+        .terminal_manager
+        .write_to_session(&session_id, &data)
         .map_err(|e| e.to_string())
 }
 
@@ -677,7 +805,9 @@ async fn attach_multiplexer_session(
 async fn create_local_terminal_session(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<String, String> {
-    state.local_terminal_manager.create_session(80, 24)
+    state
+        .local_terminal_manager
+        .create_session(80, 24)
         .map_err(|e| e.to_string())
 }
 
@@ -691,7 +821,9 @@ async fn close_local_terminal_session(
         let mut streams = state.active_local_streams.lock().await;
         streams.remove(&session_id);
     }
-    state.local_terminal_manager.close_session(&session_id)
+    state
+        .local_terminal_manager
+        .close_session(&session_id)
         .map_err(|e| e.to_string())
 }
 
@@ -702,7 +834,9 @@ async fn resize_local_terminal(
     cols: u16,
     rows: u16,
 ) -> std::result::Result<(), String> {
-    state.local_terminal_manager.resize_session(&session_id, cols, rows)
+    state
+        .local_terminal_manager
+        .resize_session(&session_id, cols, rows)
         .map_err(|e| e.to_string())
 }
 
@@ -712,7 +846,9 @@ async fn write_local_terminal(
     session_id: String,
     data: Vec<u8>,
 ) -> std::result::Result<(), String> {
-    state.local_terminal_manager.write_to_session(&session_id, &data)
+    state
+        .local_terminal_manager
+        .write_to_session(&session_id, &data)
         .map_err(|e| e.to_string())
 }
 
@@ -732,27 +868,27 @@ async fn start_local_terminal_stream(
     }
 
     // Get the reader Arc upfront
-    let reader = state.local_terminal_manager.get_reader(&session_id)
+    let reader = state
+        .local_terminal_manager
+        .get_reader(&session_id)
         .ok_or_else(|| format!("Session not found: {}", session_id))?;
 
     let local_terminal_manager = state.local_terminal_manager.clone();
     let active_streams = state.active_local_streams.clone();
     let session_id_clone = session_id.clone();
-    
+
     // Spawn background task to poll terminal output
     tauri::async_runtime::spawn(async move {
         loop {
             if !local_terminal_manager.has_session(&session_id_clone) {
                 break;
             }
-            
+
             let reader_clone = reader.clone();
-            
+
             // Use spawn_blocking for the blocking read operation
-            let read_result = tokio::task::spawn_blocking(move || {
-                reader_clone.read()
-            }).await;
-            
+            let read_result = tokio::task::spawn_blocking(move || reader_clone.read()).await;
+
             match read_result {
                 Ok(Ok(data)) if !data.is_empty() => {
                     let payload = TerminalOutputPayload {
@@ -768,11 +904,11 @@ async fn start_local_terminal_stream(
                 Ok(Err(_)) | Err(_) => break,
             }
         }
-        
+
         let mut streams = active_streams.lock().await;
         streams.remove(&session_id_clone);
     });
-    
+
     Ok(())
 }
 
@@ -782,13 +918,18 @@ async fn execute_command(
     server_id: String,
     command: String,
 ) -> std::result::Result<CommandOutput, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.ssh_client.execute_command(&server, &command, None)
+    state
+        .ssh_client
+        .execute_command(&server, &command, None)
         .map_err(|e| e.to_string())
 }
 
@@ -800,7 +941,10 @@ async fn execute_command_stream(
     command: String,
     command_id: String,
 ) -> std::result::Result<CommandOutput, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
@@ -810,10 +954,12 @@ async fn execute_command_stream(
     // as we receive output. Since the current implementation reads all output
     // at once, we'll emit the complete output as a single event.
     // A more sophisticated implementation would use a streaming channel.
-    
-    let result = state.ssh_client.execute_command(&server, &command, None)
+
+    let result = state
+        .ssh_client
+        .execute_command(&server, &command, None)
         .map_err(|e| e.to_string())?;
-    
+
     // Emit stdout if not empty
     if !result.stdout.is_empty() {
         let payload = CommandOutputPayload {
@@ -824,7 +970,7 @@ async fn execute_command_stream(
         };
         let _ = app_handle.emit("command-output", payload);
     }
-    
+
     // Emit stderr if not empty
     if !result.stderr.is_empty() {
         let payload = CommandOutputPayload {
@@ -835,7 +981,7 @@ async fn execute_command_stream(
         };
         let _ = app_handle.emit("command-output", payload);
     }
-    
+
     Ok(result)
 }
 
@@ -847,10 +993,15 @@ async fn store_credential(
     is_password: bool,
 ) -> std::result::Result<(), String> {
     if is_password {
-        state.credential_store.store_password(&server_id, &credential)
+        state
+            .credential_store
+            .store_password(&server_id, &credential)
     } else {
-        state.credential_store.store_key_path(&server_id, &credential)
-    }.map_err(|e| e.to_string())
+        state
+            .credential_store
+            .store_key_path(&server_id, &credential)
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -859,7 +1010,9 @@ async fn store_key_passphrase(
     server_id: String,
     passphrase: String,
 ) -> std::result::Result<(), String> {
-    state.credential_store.store_key_passphrase(&server_id, &passphrase)
+    state
+        .credential_store
+        .store_key_passphrase(&server_id, &passphrase)
         .map_err(|e| e.to_string())
 }
 
@@ -870,7 +1023,10 @@ async fn set_sudo_password(
     server_id: String,
     password: String,
 ) -> std::result::Result<(), String> {
-    state.file_manager.set_sudo_password(&server_id, &password).await;
+    state
+        .file_manager
+        .set_sudo_password(&server_id, &password)
+        .await;
     Ok(())
 }
 
@@ -892,7 +1048,10 @@ async fn check_duplicate_server(
     username: String,
     exclude_id: Option<String>,
 ) -> std::result::Result<bool, String> {
-    state.server_manager.lock().await
+    state
+        .server_manager
+        .lock()
+        .await
         .check_duplicate(&host, port, &username, exclude_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -910,13 +1069,18 @@ async fn download_file(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<FileContent, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.download_file(&server, &remote_path)
+    state
+        .file_manager
+        .download_file(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -930,13 +1094,18 @@ async fn save_file(
     remote_path: String,
     content: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.save_file(&server, &remote_path, &content)
+    state
+        .file_manager
+        .save_file(&server, &remote_path, &content)
         .await
         .map_err(|e| e.to_string())
 }
@@ -949,13 +1118,18 @@ async fn create_file(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.create_file(&server, &remote_path)
+    state
+        .file_manager
+        .create_file(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -968,13 +1142,18 @@ async fn create_directory(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.create_directory(&server, &remote_path)
+    state
+        .file_manager
+        .create_directory(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -987,13 +1166,18 @@ async fn delete_remote_file(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.delete_file(&server, &remote_path)
+    state
+        .file_manager
+        .delete_file(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1006,13 +1190,18 @@ async fn change_permissions(
     remote_path: String,
     mode: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.change_permissions(&server, &remote_path, &mode)
+    state
+        .file_manager
+        .change_permissions(&server, &remote_path, &mode)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1026,13 +1215,18 @@ async fn rename_file(
     old_path: String,
     new_path: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.rename_file(&server, &old_path, &new_path)
+    state
+        .file_manager
+        .rename_file(&server, &old_path, &new_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1047,13 +1241,18 @@ async fn upload_files(
     remote_dir: String,
     local_paths: Vec<String>,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.file_manager.upload_files(&server, &remote_dir, local_paths, Some(&app_handle))
+    state
+        .file_manager
+        .upload_files(&server, &remote_dir, local_paths, Some(&app_handle))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1070,13 +1269,18 @@ async fn check_file_conflict(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<ConflictStatus, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.sync_engine.check_for_conflicts(&server, &remote_path)
+    state
+        .sync_engine
+        .check_for_conflicts(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1089,13 +1293,18 @@ async fn get_file_diff(
     server_id: String,
     remote_path: String,
 ) -> std::result::Result<FileDiff, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.conflict_resolver.get_diff(&server, &remote_path)
+    state
+        .conflict_resolver
+        .get_diff(&server, &remote_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1109,13 +1318,18 @@ async fn resolve_conflict(
     remote_path: String,
     resolution: ConflictResolution,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.conflict_resolver.resolve_conflict(&server, &remote_path, resolution)
+    state
+        .conflict_resolver
+        .resolve_conflict(&server, &remote_path, resolution)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1156,16 +1370,17 @@ impl Default for EditorSettings {
 async fn get_editor_settings(
     app_handle: tauri::AppHandle,
 ) -> std::result::Result<EditorSettings, String> {
-    let app_data_dir = app_handle.path().app_data_dir()
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
         .map_err(|e| format!("Failed to get app data directory: {}", e))?;
-    
+
     let settings_path = app_data_dir.join("editor_settings.json");
-    
+
     if settings_path.exists() {
         let content = std::fs::read_to_string(&settings_path)
             .map_err(|e| format!("Failed to read settings: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse settings: {}", e))
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))
     } else {
         Ok(EditorSettings::default())
     }
@@ -1178,21 +1393,23 @@ async fn update_editor_settings(
     app_handle: tauri::AppHandle,
     settings: EditorSettings,
 ) -> std::result::Result<(), String> {
-    let app_data_dir = app_handle.path().app_data_dir()
+    let app_data_dir = app_handle
+        .path()
+        .app_data_dir()
         .map_err(|e| format!("Failed to get app data directory: {}", e))?;
-    
+
     // Ensure directory exists
     std::fs::create_dir_all(&app_data_dir)
         .map_err(|e| format!("Failed to create settings directory: {}", e))?;
-    
+
     let settings_path = app_data_dir.join("editor_settings.json");
-    
+
     let content = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    
+
     std::fs::write(&settings_path, content)
         .map_err(|e| format!("Failed to write settings: {}", e))?;
-    
+
     Ok(())
 }
 
@@ -1205,7 +1422,8 @@ async fn update_editor_settings(
 async fn get_terminal_settings(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<TerminalSettings, String> {
-    state.settings_manager
+    state
+        .settings_manager
         .get_terminal_settings()
         .await
         .map_err(|e| e.to_string())
@@ -1217,7 +1435,8 @@ async fn save_terminal_settings(
     state: tauri::State<'_, AppState>,
     settings: TerminalSettings,
 ) -> std::result::Result<(), String> {
-    state.settings_manager
+    state
+        .settings_manager
         .save_terminal_settings(&settings)
         .await
         .map_err(|e| e.to_string())
@@ -1234,7 +1453,10 @@ async fn create_script(
     state: tauri::State<'_, AppState>,
     input: CreateScriptInput,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .create_script(input)
         .await
         .map_err(|e| e.to_string())
@@ -1248,7 +1470,10 @@ async fn update_script(
     id: String,
     input: UpdateScriptInput,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .update_script(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -1261,7 +1486,10 @@ async fn delete_script(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .delete_script(&id)
         .await
         .map_err(|e| e.to_string())
@@ -1273,7 +1501,10 @@ async fn delete_script(
 async fn list_scripts(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<DeploymentScript>, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .list_scripts()
         .await
         .map_err(|e| e.to_string())
@@ -1286,7 +1517,10 @@ async fn get_script(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .get_script(&id)
         .await
         .map_err(|e| e.to_string())?
@@ -1300,7 +1534,10 @@ async fn duplicate_script(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .duplicate_script(&id)
         .await
         .map_err(|e| e.to_string())
@@ -1313,13 +1550,19 @@ async fn export_script(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<String, String> {
-    let script = state.script_manager.lock().await
+    let script = state
+        .script_manager
+        .lock()
+        .await
         .get_script(&id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Script not found: {}", id))?;
-    
-    state.script_manager.lock().await
+
+    state
+        .script_manager
+        .lock()
+        .await
         .export_script(&script)
         .map_err(|e| e.to_string())
 }
@@ -1331,7 +1574,10 @@ async fn import_script(
     state: tauri::State<'_, AppState>,
     yaml: String,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.script_manager.lock().await
+    state
+        .script_manager
+        .lock()
+        .await
         .import_script(&yaml)
         .await
         .map_err(|e| e.to_string())
@@ -1367,7 +1613,9 @@ async fn get_template(
     state: tauri::State<'_, AppState>,
     name: String,
 ) -> std::result::Result<DeploymentScript, String> {
-    state.template_library.get_template(&name)
+    state
+        .template_library
+        .get_template(&name)
         .cloned()
         .ok_or_else(|| format!("Template not found: {}", name))
 }
@@ -1380,9 +1628,11 @@ async fn create_from_template(
     template_name: String,
 ) -> std::result::Result<DeploymentScript, String> {
     // Create script from template
-    let script = state.template_library.create_from_template(&template_name)
+    let script = state
+        .template_library
+        .create_from_template(&template_name)
         .ok_or_else(|| format!("Template not found: {}", template_name))?;
-    
+
     // Save the new script to database
     let input = CreateScriptInput {
         name: script.name.clone(),
@@ -1393,8 +1643,11 @@ async fn create_from_template(
         tags: script.tags.clone(),
         is_template: false,
     };
-    
-    state.script_manager.lock().await
+
+    state
+        .script_manager
+        .lock()
+        .await
         .create_script(input)
         .await
         .map_err(|e| e.to_string())
@@ -1411,7 +1664,9 @@ async fn list_deployments(
     state: tauri::State<'_, AppState>,
     filters: DeploymentFilters,
 ) -> std::result::Result<Vec<Deployment>, String> {
-    state.deployment_logger.list_deployments(filters)
+    state
+        .deployment_logger
+        .list_deployments(filters)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1423,7 +1678,9 @@ async fn get_deployment(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<Deployment, String> {
-    state.deployment_logger.get_deployment(&id)
+    state
+        .deployment_logger
+        .get_deployment(&id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Deployment not found: {}", id))
@@ -1436,7 +1693,9 @@ async fn get_deployment_logs(
     state: tauri::State<'_, AppState>,
     deployment_id: String,
 ) -> std::result::Result<Vec<DeploymentLog>, String> {
-    state.deployment_logger.get_deployment_logs(&deployment_id)
+    state
+        .deployment_logger
+        .get_deployment_logs(&deployment_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1449,10 +1708,11 @@ async fn export_deployment_logs(
     deployment_id: String,
     format: String,
 ) -> std::result::Result<String, String> {
-    let export_format: ExportFormat = format.parse()
-        .map_err(|e: String| e)?;
-    
-    state.deployment_logger.export_deployment_logs(&deployment_id, export_format)
+    let export_format: ExportFormat = format.parse().map_err(|e: String| e)?;
+
+    state
+        .deployment_logger
+        .export_deployment_logs(&deployment_id, export_format)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1465,7 +1725,9 @@ async fn search_deployment_logs(
     deployment_id: String,
     search_term: String,
 ) -> std::result::Result<Vec<DeploymentLog>, String> {
-    state.deployment_logger.search_logs(&deployment_id, &search_term)
+    state
+        .deployment_logger
+        .search_logs(&deployment_id, &search_term)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1482,14 +1744,19 @@ async fn start_deployment(
     config: ExecutionConfig,
 ) -> std::result::Result<Deployment, String> {
     // Get the script
-    let script = state.script_manager.lock().await
+    let script = state
+        .script_manager
+        .lock()
+        .await
         .get_script(&config.script_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Script not found: {}", config.script_id))?;
-    
+
     // Execute the deployment
-    state.script_engine.execute(&script, config)
+    state
+        .script_engine
+        .execute(&script, config)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1501,7 +1768,9 @@ async fn cancel_deployment(
     state: tauri::State<'_, AppState>,
     deployment_id: String,
 ) -> std::result::Result<(), String> {
-    state.script_engine.cancel(&deployment_id)
+    state
+        .script_engine
+        .cancel(&deployment_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1514,14 +1783,19 @@ async fn dry_run_deployment(
     config: ExecutionConfig,
 ) -> std::result::Result<DryRunResult, String> {
     // Get the script
-    let script = state.script_manager.lock().await
+    let script = state
+        .script_manager
+        .lock()
+        .await
         .get_script(&config.script_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Script not found: {}", config.script_id))?;
-    
+
     // Execute dry-run
-    state.script_engine.execute_dry_run(&script, config)
+    state
+        .script_engine
+        .execute_dry_run(&script, config)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1537,7 +1811,9 @@ async fn rollback_deployment(
     state: tauri::State<'_, AppState>,
     deployment_id: String,
 ) -> std::result::Result<Deployment, String> {
-    state.rollback_manager.execute_rollback(&deployment_id)
+    state
+        .rollback_manager
+        .execute_rollback(&deployment_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1549,7 +1825,9 @@ async fn can_rollback_deployment(
     state: tauri::State<'_, AppState>,
     deployment_id: String,
 ) -> std::result::Result<bool, String> {
-    state.rollback_manager.can_rollback(&deployment_id)
+    state
+        .rollback_manager
+        .can_rollback(&deployment_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1561,7 +1839,9 @@ async fn get_rollback_info(
     state: tauri::State<'_, AppState>,
     deployment_id: String,
 ) -> std::result::Result<RollbackInfo, String> {
-    state.rollback_manager.get_rollback_info(&deployment_id)
+    state
+        .rollback_manager
+        .get_rollback_info(&deployment_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1578,7 +1858,8 @@ async fn queue_uploads(
     server_id: String,
     transfers: Vec<TransferRequest>,
 ) -> std::result::Result<Vec<String>, String> {
-    state.transfer_manager
+    state
+        .transfer_manager
         .queue_uploads(&server_id, transfers)
         .await
         .map_err(|e| e.to_string())
@@ -1592,7 +1873,8 @@ async fn queue_downloads(
     server_id: String,
     transfers: Vec<TransferRequest>,
 ) -> std::result::Result<Vec<String>, String> {
-    state.transfer_manager
+    state
+        .transfer_manager
         .queue_downloads(&server_id, transfers)
         .await
         .map_err(|e| e.to_string())
@@ -1605,7 +1887,8 @@ async fn cancel_transfer(
     state: tauri::State<'_, AppState>,
     transfer_id: String,
 ) -> std::result::Result<(), String> {
-    state.transfer_manager
+    state
+        .transfer_manager
         .cancel_transfer(&transfer_id)
         .await
         .map_err(|e| e.to_string())
@@ -1618,7 +1901,8 @@ async fn get_transfer_status(
     state: tauri::State<'_, AppState>,
     transfer_id: String,
 ) -> std::result::Result<TransferStatus, String> {
-    state.transfer_manager
+    state
+        .transfer_manager
         .get_transfer_status(&transfer_id)
         .await
         .map_err(|e| e.to_string())
@@ -1640,7 +1924,8 @@ async fn set_transfer_speed_limit(
     state: tauri::State<'_, AppState>,
     bytes_per_second: Option<u64>,
 ) -> std::result::Result<(), String> {
-    state.transfer_manager
+    state
+        .transfer_manager
         .set_speed_limit(bytes_per_second)
         .await
         .map_err(|e| e.to_string())
@@ -1657,13 +1942,17 @@ async fn get_server_metrics(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<ServerMetrics, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
 
-    state.monitor_service
+    state
+        .monitor_service
         .get_server_metrics(&server)
         .map_err(|e| e.to_string())
 }
@@ -1674,7 +1963,8 @@ async fn get_server_metrics(
 async fn get_all_server_status(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<ServerStatus>, String> {
-    state.monitor_service
+    state
+        .monitor_service
         .get_all_server_status()
         .await
         .map_err(|e| e.to_string())
@@ -1689,10 +1979,10 @@ async fn get_metrics_history(
     metric: String,
     hours: u32,
 ) -> std::result::Result<Vec<MetricPoint>, String> {
-    let metric_type: MetricType = metric.parse()
-        .map_err(|e: String| e)?;
-    
-    state.monitor_service
+    let metric_type: MetricType = metric.parse().map_err(|e: String| e)?;
+
+    state
+        .monitor_service
         .get_metrics_history(&server_id, metric_type, hours)
         .await
         .map_err(|e| e.to_string())
@@ -1705,7 +1995,8 @@ async fn create_alert(
     state: tauri::State<'_, AppState>,
     input: CreateAlertInput,
 ) -> std::result::Result<AlertConfig, String> {
-    state.monitor_service
+    state
+        .monitor_service
         .create_alert(input)
         .await
         .map_err(|e| e.to_string())
@@ -1717,7 +2008,8 @@ async fn create_alert(
 async fn list_alerts(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<AlertConfig>, String> {
-    state.monitor_service
+    state
+        .monitor_service
         .list_alerts()
         .await
         .map_err(|e| e.to_string())
@@ -1731,7 +2023,8 @@ async fn update_alert(
     id: String,
     input: UpdateAlertInput,
 ) -> std::result::Result<AlertConfig, String> {
-    state.monitor_service
+    state
+        .monitor_service
         .update_alert(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -1744,7 +2037,8 @@ async fn delete_alert(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.monitor_service
+    state
+        .monitor_service
         .delete_alert(&id)
         .await
         .map_err(|e| e.to_string())
@@ -1756,7 +2050,8 @@ async fn delete_alert(
 async fn check_alerts(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<Alert>, String> {
-    state.monitor_service
+    state
+        .monitor_service
         .check_alerts()
         .await
         .map_err(|e| e.to_string())
@@ -1769,18 +2064,14 @@ async fn start_monitoring(
     state: tauri::State<'_, AppState>,
     interval_secs: u64,
 ) -> std::result::Result<(), String> {
-    state.monitor_service
-        .start_monitoring(interval_secs)
-        .await;
+    state.monitor_service.start_monitoring(interval_secs).await;
     Ok(())
 }
 
 /// Stop monitoring
 /// Requirements: 4.7
 #[tauri::command]
-async fn stop_monitoring(
-    state: tauri::State<'_, AppState>,
-) -> std::result::Result<(), String> {
+async fn stop_monitoring(state: tauri::State<'_, AppState>) -> std::result::Result<(), String> {
     state.monitor_service.stop_monitoring();
     Ok(())
 }
@@ -1790,7 +2081,8 @@ async fn stop_monitoring(
 async fn run_monitoring_cycle(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    state.monitor_service
+    state
+        .monitor_service
         .run_monitoring_cycle()
         .await
         .map_err(|e| e.to_string())
@@ -1807,7 +2099,10 @@ async fn create_snippet(
     state: tauri::State<'_, AppState>,
     input: CreateSnippetInput,
 ) -> std::result::Result<Snippet, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .create_snippet(input)
         .await
         .map_err(|e| e.to_string())
@@ -1820,7 +2115,10 @@ async fn get_snippet(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<Snippet, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .get_snippet(&id)
         .await
         .map_err(|e| e.to_string())?
@@ -1833,7 +2131,10 @@ async fn get_snippet(
 async fn list_snippets(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<Snippet>, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .list_snippets()
         .await
         .map_err(|e| e.to_string())
@@ -1846,7 +2147,10 @@ async fn list_snippets_by_category(
     state: tauri::State<'_, AppState>,
     category: String,
 ) -> std::result::Result<Vec<Snippet>, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .list_by_category(&category)
         .await
         .map_err(|e| e.to_string())
@@ -1859,7 +2163,10 @@ async fn search_snippets(
     state: tauri::State<'_, AppState>,
     query: String,
 ) -> std::result::Result<Vec<Snippet>, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .search_snippets(&query)
         .await
         .map_err(|e| e.to_string())
@@ -1873,7 +2180,10 @@ async fn update_snippet(
     id: String,
     input: UpdateSnippetInput,
 ) -> std::result::Result<Snippet, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .update_snippet(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -1886,7 +2196,10 @@ async fn delete_snippet(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .delete_snippet(&id)
         .await
         .map_err(|e| e.to_string())
@@ -1895,10 +2208,11 @@ async fn delete_snippet(
 /// Export all snippets to JSON
 /// Requirements: 5.6
 #[tauri::command]
-async fn export_snippets(
-    state: tauri::State<'_, AppState>,
-) -> std::result::Result<String, String> {
-    state.snippet_library.lock().await
+async fn export_snippets(state: tauri::State<'_, AppState>) -> std::result::Result<String, String> {
+    state
+        .snippet_library
+        .lock()
+        .await
         .export_snippets()
         .await
         .map_err(|e| e.to_string())
@@ -1911,7 +2225,10 @@ async fn import_snippets(
     state: tauri::State<'_, AppState>,
     json: String,
 ) -> std::result::Result<SnippetImportResult, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .import_snippets(&json)
         .await
         .map_err(|e| e.to_string())
@@ -1922,7 +2239,10 @@ async fn import_snippets(
 async fn list_snippet_categories(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<String>, String> {
-    state.snippet_library.lock().await
+    state
+        .snippet_library
+        .lock()
+        .await
         .list_categories()
         .await
         .map_err(|e| e.to_string())
@@ -1940,10 +2260,12 @@ async fn add_favorite(
     item_type: String,
     item_id: String,
 ) -> std::result::Result<Favorite, String> {
-    let fav_type: FavoriteType = item_type.parse()
-        .map_err(|e: String| e)?;
-    
-    state.favorites_manager.lock().await
+    let fav_type: FavoriteType = item_type.parse().map_err(|e: String| e)?;
+
+    state
+        .favorites_manager
+        .lock()
+        .await
         .add_favorite(fav_type, &item_id)
         .await
         .map_err(|e| e.to_string())
@@ -1957,10 +2279,12 @@ async fn remove_favorite(
     item_type: String,
     item_id: String,
 ) -> std::result::Result<(), String> {
-    let fav_type: FavoriteType = item_type.parse()
-        .map_err(|e: String| e)?;
-    
-    state.favorites_manager.lock().await
+    let fav_type: FavoriteType = item_type.parse().map_err(|e: String| e)?;
+
+    state
+        .favorites_manager
+        .lock()
+        .await
         .remove_favorite(fav_type, &item_id)
         .await
         .map_err(|e| e.to_string())
@@ -1972,7 +2296,10 @@ async fn remove_favorite(
 async fn list_favorites(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<Favorite>, String> {
-    state.favorites_manager.lock().await
+    state
+        .favorites_manager
+        .lock()
+        .await
         .list_favorites()
         .await
         .map_err(|e| e.to_string())
@@ -1984,10 +2311,12 @@ async fn list_favorites_by_type(
     state: tauri::State<'_, AppState>,
     item_type: String,
 ) -> std::result::Result<Vec<Favorite>, String> {
-    let fav_type: FavoriteType = item_type.parse()
-        .map_err(|e: String| e)?;
-    
-    state.favorites_manager.lock().await
+    let fav_type: FavoriteType = item_type.parse().map_err(|e: String| e)?;
+
+    state
+        .favorites_manager
+        .lock()
+        .await
         .list_favorites_by_type(fav_type)
         .await
         .map_err(|e| e.to_string())
@@ -2000,10 +2329,12 @@ async fn is_favorite(
     item_type: String,
     item_id: String,
 ) -> std::result::Result<bool, String> {
-    let fav_type: FavoriteType = item_type.parse()
-        .map_err(|e: String| e)?;
-    
-    state.favorites_manager.lock().await
+    let fav_type: FavoriteType = item_type.parse().map_err(|e: String| e)?;
+
+    state
+        .favorites_manager
+        .lock()
+        .await
         .is_favorite(fav_type, &item_id)
         .await
         .map_err(|e| e.to_string())
@@ -2024,8 +2355,11 @@ async fn log_activity(
         item_id,
         details,
     };
-    
-    state.favorites_manager.lock().await
+
+    state
+        .favorites_manager
+        .lock()
+        .await
         .log_activity(input)
         .await
         .map_err(|e| e.to_string())
@@ -2038,7 +2372,10 @@ async fn get_recent_activity(
     state: tauri::State<'_, AppState>,
     limit: u32,
 ) -> std::result::Result<Vec<ActivityLog>, String> {
-    state.favorites_manager.lock().await
+    state
+        .favorites_manager
+        .lock()
+        .await
         .get_recent_activity(limit)
         .await
         .map_err(|e| e.to_string())
@@ -2054,7 +2391,8 @@ async fn nginx_get_status(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<NginxStatus, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .get_status(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2066,7 +2404,8 @@ async fn nginx_list_domains(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<NginxDomain>, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .list_domains(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2078,7 +2417,8 @@ async fn nginx_create_domain(
     state: tauri::State<'_, AppState>,
     input: CreateDomainInput,
 ) -> std::result::Result<NginxDomain, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .create_domain(input)
         .await
         .map_err(|e| e.to_string())
@@ -2092,7 +2432,8 @@ async fn nginx_update_domain(
     domain_name: String,
     input: UpdateDomainInput,
 ) -> std::result::Result<NginxDomain, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .update_domain(&server_id, &domain_name, input)
         .await
         .map_err(|e| e.to_string())
@@ -2105,7 +2446,8 @@ async fn nginx_delete_domain(
     server_id: String,
     domain_name: String,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .delete_domain(&server_id, &domain_name)
         .await
         .map_err(|e| e.to_string())
@@ -2119,7 +2461,8 @@ async fn nginx_toggle_domain(
     domain_name: String,
     enable: bool,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .toggle_domain(&server_id, &domain_name, enable)
         .await
         .map_err(|e| e.to_string())
@@ -2132,7 +2475,8 @@ async fn nginx_get_domain_config(
     server_id: String,
     domain_name: String,
 ) -> std::result::Result<String, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .get_domain_config(&server_id, &domain_name)
         .await
         .map_err(|e| e.to_string())
@@ -2146,7 +2490,8 @@ async fn nginx_save_domain_config(
     domain_name: String,
     content: String,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .save_domain_config(&server_id, &domain_name, &content)
         .await
         .map_err(|e| e.to_string())
@@ -2160,7 +2505,8 @@ async fn nginx_issue_ssl(
     domain_name: String,
     email: String,
 ) -> std::result::Result<SslResult, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .issue_ssl(&server_id, &domain_name, &email)
         .await
         .map_err(|e| e.to_string())
@@ -2172,7 +2518,8 @@ async fn nginx_renew_ssl(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<String, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .renew_ssl(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2184,7 +2531,8 @@ async fn nginx_list_ssl_certificates(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<SslCertificate>, String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .list_ssl_certificates(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2204,7 +2552,8 @@ async fn nginx_restart(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .restart_nginx(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2216,7 +2565,8 @@ async fn nginx_start(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .start_nginx(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2228,7 +2578,8 @@ async fn nginx_stop(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<(), String> {
-    state.nginx_manager
+    state
+        .nginx_manager
         .stop_nginx(&server_id)
         .await
         .map_err(|e| e.to_string())
@@ -2244,7 +2595,8 @@ async fn generate_ssh_key(
     state: tauri::State<'_, AppState>,
     input: CreateSshKeyInput,
 ) -> std::result::Result<GeneratedKey, String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .generate_key(input)
         .await
         .map_err(|e| e.to_string())
@@ -2255,7 +2607,8 @@ async fn generate_ssh_key(
 async fn list_ssh_keys(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<Vec<SshKey>, String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .list_keys()
         .await
         .map_err(|e| e.to_string())
@@ -2267,7 +2620,8 @@ async fn get_ssh_key(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<SshKey, String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .get_key(&id)
         .await
         .map_err(|e| e.to_string())?
@@ -2280,7 +2634,8 @@ async fn delete_ssh_key(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .delete_key(&id)
         .await
         .map_err(|e| e.to_string())
@@ -2294,7 +2649,8 @@ async fn update_ssh_key(
     name: Option<String>,
     comment: Option<String>,
 ) -> std::result::Result<SshKey, String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .update_key(&id, name, comment)
         .await
         .map_err(|e| e.to_string())
@@ -2306,7 +2662,8 @@ async fn export_ssh_public_key(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<String, String> {
-    state.ssh_key_manager
+    state
+        .ssh_key_manager
         .export_public_key(&id)
         .await
         .map_err(|e| e.to_string())
@@ -2322,13 +2679,19 @@ async fn docker_get_info(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<DockerInfo, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.get_info(&server).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .get_info(&server)
+        .map_err(|e| e.to_string())
 }
 
 /// List Docker containers
@@ -2338,13 +2701,19 @@ async fn docker_list_containers(
     server_id: String,
     all: bool,
 ) -> std::result::Result<Vec<DockerContainer>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.list_containers(&server, all).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .list_containers(&server, all)
+        .map_err(|e| e.to_string())
 }
 
 /// Start a container
@@ -2354,13 +2723,19 @@ async fn docker_start_container(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.start_container(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .start_container(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Stop a container
@@ -2370,13 +2745,19 @@ async fn docker_stop_container(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.stop_container(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .stop_container(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Restart a container
@@ -2386,13 +2767,19 @@ async fn docker_restart_container(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.restart_container(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .restart_container(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Pause a container
@@ -2402,13 +2789,19 @@ async fn docker_pause_container(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.pause_container(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .pause_container(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Unpause a container
@@ -2418,13 +2811,19 @@ async fn docker_unpause_container(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.unpause_container(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .unpause_container(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove a container
@@ -2435,13 +2834,19 @@ async fn docker_remove_container(
     container_id: String,
     force: bool,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.remove_container(&server, &container_id, force).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .remove_container(&server, &container_id, force)
+        .map_err(|e| e.to_string())
 }
 
 /// Get container logs
@@ -2452,13 +2857,19 @@ async fn docker_get_container_logs(
     container_id: String,
     tail: u32,
 ) -> std::result::Result<ContainerLogs, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.get_container_logs(&server, &container_id, tail).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .get_container_logs(&server, &container_id, tail)
+        .map_err(|e| e.to_string())
 }
 
 /// Get container stats
@@ -2468,13 +2879,19 @@ async fn docker_get_container_stats(
     server_id: String,
     container_id: String,
 ) -> std::result::Result<ContainerStats, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.get_container_stats(&server, &container_id).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .get_container_stats(&server, &container_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Create a new container
@@ -2484,13 +2901,19 @@ async fn docker_create_container(
     server_id: String,
     input: CreateContainerInput,
 ) -> std::result::Result<String, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.create_container(&server, input).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .create_container(&server, input)
+        .map_err(|e| e.to_string())
 }
 
 /// List Docker images
@@ -2499,13 +2922,19 @@ async fn docker_list_images(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<DockerImage>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.list_images(&server).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .list_images(&server)
+        .map_err(|e| e.to_string())
 }
 
 /// Pull an image
@@ -2515,13 +2944,19 @@ async fn docker_pull_image(
     server_id: String,
     input: PullImageInput,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.pull_image(&server, input).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .pull_image(&server, input)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove an image
@@ -2532,13 +2967,19 @@ async fn docker_remove_image(
     image_id: String,
     force: bool,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.remove_image(&server, &image_id, force).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .remove_image(&server, &image_id, force)
+        .map_err(|e| e.to_string())
 }
 
 /// List Docker volumes
@@ -2547,13 +2988,19 @@ async fn docker_list_volumes(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<DockerVolume>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.list_volumes(&server).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .list_volumes(&server)
+        .map_err(|e| e.to_string())
 }
 
 /// Create a volume
@@ -2563,13 +3010,19 @@ async fn docker_create_volume(
     server_id: String,
     input: CreateVolumeInput,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.create_volume(&server, input).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .create_volume(&server, input)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove a volume
@@ -2580,13 +3033,19 @@ async fn docker_remove_volume(
     name: String,
     force: bool,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.remove_volume(&server, &name, force).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .remove_volume(&server, &name, force)
+        .map_err(|e| e.to_string())
 }
 
 /// List Docker networks
@@ -2595,13 +3054,19 @@ async fn docker_list_networks(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<DockerNetwork>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.list_networks(&server).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .list_networks(&server)
+        .map_err(|e| e.to_string())
 }
 
 /// Create a network
@@ -2611,13 +3076,19 @@ async fn docker_create_network(
     server_id: String,
     input: CreateNetworkInput,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.create_network(&server, input).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .create_network(&server, input)
+        .map_err(|e| e.to_string())
 }
 
 /// Remove a network
@@ -2627,13 +3098,19 @@ async fn docker_remove_network(
     server_id: String,
     name: String,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.remove_network(&server, &name).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .remove_network(&server, &name)
+        .map_err(|e| e.to_string())
 }
 
 /// List Docker Compose projects
@@ -2642,13 +3119,19 @@ async fn docker_list_compose_projects(
     state: tauri::State<'_, AppState>,
     server_id: String,
 ) -> std::result::Result<Vec<DockerComposeProject>, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.list_compose_projects(&server).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .list_compose_projects(&server)
+        .map_err(|e| e.to_string())
 }
 
 /// Docker Compose up
@@ -2659,13 +3142,19 @@ async fn docker_compose_up(
     project_path: String,
     detach: bool,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.compose_up(&server, &project_path, detach).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .compose_up(&server, &project_path, detach)
+        .map_err(|e| e.to_string())
 }
 
 /// Docker Compose down
@@ -2676,13 +3165,19 @@ async fn docker_compose_down(
     project_path: String,
     remove_volumes: bool,
 ) -> std::result::Result<(), String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.compose_down(&server, &project_path, remove_volumes).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .compose_down(&server, &project_path, remove_volumes)
+        .map_err(|e| e.to_string())
 }
 
 /// Prune Docker resources
@@ -2692,13 +3187,19 @@ async fn docker_prune(
     server_id: String,
     prune_type: String,
 ) -> std::result::Result<String, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.prune(&server, &prune_type).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .prune(&server, &prune_type)
+        .map_err(|e| e.to_string())
 }
 
 /// Execute command in container
@@ -2709,13 +3210,19 @@ async fn docker_exec_container(
     container_id: String,
     command: String,
 ) -> std::result::Result<String, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", server_id))?;
-    
-    state.docker_manager.exec_container(&server, &container_id, &command).map_err(|e| e.to_string())
+
+    state
+        .docker_manager
+        .exec_container(&server, &container_id, &command)
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
@@ -2742,8 +3249,11 @@ async fn db_add_connection(
         created_at: now.clone(),
         updated_at: now,
     };
-    
-    state.database_manager.add_connection(conn.clone()).await
+
+    state
+        .database_manager
+        .add_connection(conn.clone())
+        .await
         .map_err(|e| e.to_string())?;
     Ok(conn)
 }
@@ -2762,7 +3272,8 @@ async fn db_get_connection(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<DatabaseConnection, String> {
-    state.database_manager
+    state
+        .database_manager
         .get_connection(&id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", id))
@@ -2774,7 +3285,10 @@ async fn db_remove_connection(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.database_manager.remove_connection(&id).await
+    state
+        .database_manager
+        .remove_connection(&id)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -2784,18 +3298,23 @@ async fn db_test_connection(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> std::result::Result<ConnectionTestResult, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .test_connection(&server, &conn)
         .map_err(|e| e.to_string())
 }
@@ -2806,12 +3325,15 @@ async fn db_test_connection_input(
     state: tauri::State<'_, AppState>,
     input: CreateConnectionInput,
 ) -> std::result::Result<ConnectionTestResult, String> {
-    let server = state.server_manager.lock().await
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&input.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", input.server_id))?;
-    
+
     // Create a temporary connection object for testing
     let conn = DatabaseConnection {
         id: String::new(),
@@ -2826,8 +3348,9 @@ async fn db_test_connection_input(
         created_at: String::new(),
         updated_at: String::new(),
     };
-    
-    state.database_manager
+
+    state
+        .database_manager
         .test_connection(&server, &conn)
         .map_err(|e| e.to_string())
 }
@@ -2838,18 +3361,23 @@ async fn db_list_databases(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> std::result::Result<Vec<DatabaseInfo>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .list_databases(&server, &conn)
         .map_err(|e| e.to_string())
 }
@@ -2861,18 +3389,23 @@ async fn db_list_tables(
     connection_id: String,
     database: String,
 ) -> std::result::Result<Vec<TableInfo>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .list_tables(&server, &conn, &database)
         .map_err(|e| e.to_string())
 }
@@ -2885,18 +3418,23 @@ async fn db_get_columns(
     database: String,
     table: String,
 ) -> std::result::Result<Vec<ColumnInfo>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .get_table_columns(&server, &conn, &database, &table)
         .map_err(|e| e.to_string())
 }
@@ -2909,18 +3447,23 @@ async fn db_get_indexes(
     database: String,
     table: String,
 ) -> std::result::Result<Vec<IndexInfo>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .get_table_indexes(&server, &conn, &database, &table)
         .map_err(|e| e.to_string())
 }
@@ -2931,18 +3474,23 @@ async fn db_execute_query(
     state: tauri::State<'_, AppState>,
     input: ExecuteQueryInput,
 ) -> std::result::Result<QueryResult, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .execute_query(&server, &conn, &input.database, &input.query)
         .map_err(|e| e.to_string())
 }
@@ -2953,18 +3501,23 @@ async fn db_get_table_data(
     state: tauri::State<'_, AppState>,
     input: FetchTableDataInput,
 ) -> std::result::Result<TableData, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .get_table_data(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -2975,18 +3528,23 @@ async fn db_update_row(
     state: tauri::State<'_, AppState>,
     input: UpdateRowInput,
 ) -> std::result::Result<i64, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .update_row(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -2997,18 +3555,23 @@ async fn db_insert_row(
     state: tauri::State<'_, AppState>,
     input: InsertRowInput,
 ) -> std::result::Result<i64, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .insert_row(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -3019,18 +3582,23 @@ async fn db_delete_rows(
     state: tauri::State<'_, AppState>,
     input: DeleteRowsInput,
 ) -> std::result::Result<i64, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .delete_rows(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -3041,18 +3609,23 @@ async fn db_list_users(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> std::result::Result<Vec<DatabaseUser>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .list_users(&server, &conn)
         .map_err(|e| e.to_string())
 }
@@ -3064,18 +3637,23 @@ async fn db_create_user(
     connection_id: String,
     input: CreateUserInput,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .create_user(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -3088,18 +3666,23 @@ async fn db_drop_user(
     username: String,
     host: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .drop_user(&server, &conn, &username, &host)
         .map_err(|e| e.to_string())
 }
@@ -3110,18 +3693,23 @@ async fn db_create_database(
     state: tauri::State<'_, AppState>,
     input: CreateDatabaseInput,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .create_database(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -3133,18 +3721,23 @@ async fn db_drop_database(
     connection_id: String,
     database: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .drop_database(&server, &conn, &database)
         .map_err(|e| e.to_string())
 }
@@ -3157,18 +3750,23 @@ async fn db_get_user_privileges(
     username: String,
     host: String,
 ) -> std::result::Result<Vec<String>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .get_user_privileges(&server, &conn, &username, &host)
         .map_err(|e| e.to_string())
 }
@@ -3183,19 +3781,31 @@ async fn db_grant_privileges(
     privileges: Vec<String>,
     database: Option<String>,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
-        .grant_privileges(&server, &conn, &username, &host, &privileges, database.as_deref())
+
+    state
+        .database_manager
+        .grant_privileges(
+            &server,
+            &conn,
+            &username,
+            &host,
+            &privileges,
+            database.as_deref(),
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -3209,19 +3819,31 @@ async fn db_revoke_privileges(
     privileges: Vec<String>,
     database: Option<String>,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
-        .revoke_privileges(&server, &conn, &username, &host, &privileges, database.as_deref())
+
+    state
+        .database_manager
+        .revoke_privileges(
+            &server,
+            &conn,
+            &username,
+            &host,
+            &privileges,
+            database.as_deref(),
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -3234,18 +3856,23 @@ async fn db_change_user_password(
     host: String,
     new_password: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .change_user_password(&server, &conn, &username, &host, &new_password)
         .map_err(|e| e.to_string())
 }
@@ -3257,7 +3884,8 @@ async fn db_get_query_history(
     connection_id: String,
     limit: i32,
 ) -> std::result::Result<Vec<QueryHistoryEntry>, String> {
-    state.database_manager
+    state
+        .database_manager
         .get_query_history(&connection_id, limit)
         .await
         .map_err(|e| e.to_string())
@@ -3269,7 +3897,8 @@ async fn db_clear_query_history(
     state: tauri::State<'_, AppState>,
     connection_id: String,
 ) -> std::result::Result<(), String> {
-    state.database_manager
+    state
+        .database_manager
         .clear_query_history(&connection_id)
         .await
         .map_err(|e| e.to_string())
@@ -3281,7 +3910,8 @@ async fn db_save_query(
     state: tauri::State<'_, AppState>,
     input: SaveQueryInput,
 ) -> std::result::Result<SavedQuery, String> {
-    state.database_manager
+    state
+        .database_manager
         .save_query(input)
         .await
         .map_err(|e| e.to_string())
@@ -3293,7 +3923,8 @@ async fn db_get_saved_queries(
     state: tauri::State<'_, AppState>,
     connection_id: Option<String>,
 ) -> std::result::Result<Vec<SavedQuery>, String> {
-    state.database_manager
+    state
+        .database_manager
         .get_saved_queries(connection_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -3305,7 +3936,8 @@ async fn db_delete_saved_query(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> std::result::Result<(), String> {
-    state.database_manager
+    state
+        .database_manager
         .delete_saved_query(&id)
         .await
         .map_err(|e| e.to_string())
@@ -3318,7 +3950,8 @@ async fn db_update_connection(
     id: String,
     input: UpdateConnectionInput,
 ) -> std::result::Result<(), String> {
-    state.database_manager
+    state
+        .database_manager
         .update_connection(&id, input)
         .await
         .map_err(|e| e.to_string())
@@ -3330,18 +3963,23 @@ async fn db_create_table(
     state: tauri::State<'_, AppState>,
     input: CreateTableInput,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&input.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", input.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .create_table(&server, &conn, &input)
         .map_err(|e| e.to_string())
 }
@@ -3354,18 +3992,23 @@ async fn db_drop_table(
     database: String,
     table: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .drop_table(&server, &conn, &database, &table)
         .map_err(|e| e.to_string())
 }
@@ -3378,18 +4021,23 @@ async fn db_truncate_table(
     database: String,
     table: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .truncate_table(&server, &conn, &database, &table)
         .map_err(|e| e.to_string())
 }
@@ -3406,18 +4054,23 @@ async fn db_search_table_data(
     page: Option<i32>,
     page_size: Option<i32>,
 ) -> std::result::Result<TableData, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .search_table_data(
             &server,
             &conn,
@@ -3441,21 +4094,26 @@ async fn db_backup_database(
     state: tauri::State<'_, AppState>,
     options: database::BackupOptions,
 ) -> std::result::Result<database::BackupResult, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&options.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", options.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    let result = state.database_manager
+
+    let result = state
+        .database_manager
         .backup_database(&server, &conn, &options)
         .map_err(|e| e.to_string())?;
-    
+
     // Save to history
     let history_entry = database::BackupHistoryEntry {
         id: uuid::Uuid::new_v4().to_string(),
@@ -3467,13 +4125,20 @@ async fn db_backup_database(
         include_structure: options.include_structure,
         include_data: options.include_data,
         compressed: options.compress,
-        status: if result.success { "success".to_string() } else { "failed".to_string() },
+        status: if result.success {
+            "success".to_string()
+        } else {
+            "failed".to_string()
+        },
         error: result.error.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    
-    let _ = state.database_manager.save_backup_history(&history_entry).await;
-    
+
+    let _ = state
+        .database_manager
+        .save_backup_history(&history_entry)
+        .await;
+
     Ok(result)
 }
 
@@ -3483,18 +4148,23 @@ async fn db_restore_database(
     state: tauri::State<'_, AppState>,
     options: database::RestoreOptions,
 ) -> std::result::Result<database::RestoreResult, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&options.connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", options.connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .restore_database(&server, &conn, &options)
         .map_err(|e| e.to_string())
 }
@@ -3506,18 +4176,23 @@ async fn db_list_backup_files(
     connection_id: String,
     directory: String,
 ) -> std::result::Result<Vec<database::BackupFileInfo>, String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .list_backup_files(&server, &directory)
         .map_err(|e| e.to_string())
 }
@@ -3529,18 +4204,23 @@ async fn db_delete_backup_file(
     connection_id: String,
     file_path: String,
 ) -> std::result::Result<(), String> {
-    let conn = state.database_manager
+    let conn = state
+        .database_manager
         .get_connection(&connection_id)
         .await
         .ok_or_else(|| format!("Connection not found: {}", connection_id))?;
-    
-    let server = state.server_manager.lock().await
+
+    let server = state
+        .server_manager
+        .lock()
+        .await
         .get_server(&conn.server_id)
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Server not found: {}", conn.server_id))?;
-    
-    state.database_manager
+
+    state
+        .database_manager
         .delete_backup_file(&server, &file_path)
         .map_err(|e| e.to_string())
 }
@@ -3552,7 +4232,8 @@ async fn db_get_backup_history(
     connection_id: Option<String>,
     limit: Option<i32>,
 ) -> std::result::Result<Vec<database::BackupHistoryEntry>, String> {
-    state.database_manager
+    state
+        .database_manager
         .get_backup_history(connection_id.as_deref(), limit.unwrap_or(50))
         .await
         .map_err(|e| e.to_string())
@@ -3564,7 +4245,8 @@ async fn db_clear_backup_history(
     state: tauri::State<'_, AppState>,
     connection_id: Option<String>,
 ) -> std::result::Result<(), String> {
-    state.database_manager
+    state
+        .database_manager
         .clear_backup_history(connection_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -3577,10 +4259,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
-            
+
             tauri::async_runtime::block_on(async move {
                 // Get app data directory
-                let app_data_dir = app_handle.path().app_data_dir()
+                let app_data_dir = app_handle
+                    .path()
+                    .app_data_dir()
                     .expect("Failed to get app data directory");
 
                 // Initialize database
@@ -3591,24 +4275,25 @@ pub fn run() {
                 // Initialize components
                 let credential_store = Arc::new(CredentialStore::new());
                 let connection_pool = Arc::new(ConnectionPool::new(10));
-                let server_manager = Arc::new(Mutex::new(
-                    ServerManager::new(db_pool.clone(), credential_store.clone())
-                ));
-                let group_manager = Arc::new(Mutex::new(
-                    GroupManager::new(db_pool.clone())
-                ));
-                let script_manager = Arc::new(Mutex::new(
-                    ScriptManager::new(db_pool.clone())
-                ));
+                let server_manager = Arc::new(Mutex::new(ServerManager::new(
+                    db_pool.clone(),
+                    credential_store.clone(),
+                )));
+                let group_manager = Arc::new(Mutex::new(GroupManager::new(db_pool.clone())));
+                let script_manager = Arc::new(Mutex::new(ScriptManager::new(db_pool.clone())));
                 let template_library = Arc::new(TemplateLibrary::new());
-                let ssh_client = Arc::new(SshClient::new(connection_pool, credential_store.clone()));
+                let ssh_client =
+                    Arc::new(SshClient::new(connection_pool, credential_store.clone()));
                 let file_browser = Arc::new(FileBrowser::new(credential_store.clone()));
                 let terminal_manager = Arc::new(TerminalManager::new(credential_store.clone()));
 
                 // Initialize cache manager
                 let cache_dir = app_data_dir.join("file_cache");
                 let cache_manager = Arc::new(CacheManager::new(cache_dir, db_pool.clone()));
-                cache_manager.init().await.expect("Failed to initialize cache manager");
+                cache_manager
+                    .init()
+                    .await
+                    .expect("Failed to initialize cache manager");
 
                 // Initialize deployment logger
                 let deployment_logger = Arc::new(DeploymentLogger::with_app_handle(
@@ -3640,14 +4325,12 @@ pub fn run() {
                 ));
 
                 // Initialize sync engine
-                let sync_engine = Arc::new(SyncEngine::new(
-                    file_manager.clone(),
-                    cache_manager.clone(),
-                ));
+                let sync_engine =
+                    Arc::new(SyncEngine::new(file_manager.clone(), cache_manager.clone()));
 
                 // Initialize conflict resolver
                 let conflict_resolver = Arc::new(ConflictResolver::new(sync_engine.clone()));
-                
+
                 // Initialize local terminal manager
                 let local_terminal_manager = Arc::new(terminal::LocalTerminalManager::new());
 
@@ -3674,9 +4357,7 @@ pub fn run() {
                 monitor_service.set_app_handle(app_handle.clone()).await;
 
                 // Initialize snippet library (Phase 4 - Task 7)
-                let snippet_library = Arc::new(Mutex::new(
-                    SnippetLibrary::new(db_pool.clone())
-                ));
+                let snippet_library = Arc::new(Mutex::new(SnippetLibrary::new(db_pool.clone())));
 
                 // Seed default snippets if none exist
                 {
@@ -3687,9 +4368,8 @@ pub fn run() {
                 }
 
                 // Initialize favorites manager (Phase 4 - Task 9.6)
-                let favorites_manager = Arc::new(Mutex::new(
-                    FavoritesManager::new(db_pool.clone())
-                ));
+                let favorites_manager =
+                    Arc::new(Mutex::new(FavoritesManager::new(db_pool.clone())));
 
                 // Initialize settings manager
                 let settings_manager = Arc::new(SettingsManager::new(db_pool.clone()));
@@ -3704,15 +4384,11 @@ pub fn run() {
                 ));
 
                 // Initialize Database manager
-                let database_manager = Arc::new(DatabaseManager::new(
-                    ssh_client.clone(),
-                    db_pool.clone(),
-                ));
+                let database_manager =
+                    Arc::new(DatabaseManager::new(ssh_client.clone(), db_pool.clone()));
 
                 // Initialize Docker manager
-                let docker_manager = Arc::new(DockerManager::new(
-                    ssh_client.clone(),
-                ));
+                let docker_manager = Arc::new(DockerManager::new(ssh_client.clone()));
 
                 // Create app state
                 let state = AppState {

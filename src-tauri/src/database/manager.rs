@@ -27,7 +27,7 @@ impl DatabaseManager {
             DatabaseType::MySQL => "mysql",
             DatabaseType::PostgreSQL => "postgresql",
         };
-        
+
         sqlx::query(
             r#"
             INSERT INTO database_connections (id, server_id, name, db_type, host, port, username, password, database_name, created_at, updated_at)
@@ -48,7 +48,7 @@ impl DatabaseManager {
         .execute(&self.db_pool)
         .await
         .map_err(|e| anyhow!("Failed to save connection: {}", e))?;
-        
+
         Ok(())
     }
 
@@ -61,7 +61,7 @@ impl DatabaseManager {
         .fetch_optional(&self.db_pool)
         .await
         .ok()??;
-        
+
         Some(row.into())
     }
 
@@ -72,7 +72,7 @@ impl DatabaseManager {
             .execute(&self.db_pool)
             .await
             .map_err(|e| anyhow!("Failed to remove connection: {}", e))?;
-        
+
         Ok(())
     }
 
@@ -84,7 +84,7 @@ impl DatabaseManager {
         .fetch_all(&self.db_pool)
         .await
         .unwrap_or_default();
-        
+
         rows.into_iter().map(|r| r.into()).collect()
     }
 
@@ -114,15 +114,19 @@ impl DatabaseManager {
 
         // With 2>&1, errors go to stdout, so check both
         let combined = format!("{}{}", output.stdout, output.stderr);
-        let has_error = output.exit_code != 0 
-            || combined.to_lowercase().contains("error") 
+        let has_error = output.exit_code != 0
+            || combined.to_lowercase().contains("error")
             || combined.contains("FATAL")
             || combined.contains("could not connect")
             || combined.contains("Connection refused");
 
         if !has_error {
-            let version = output.stdout.lines()
-                .find(|line| !line.trim().is_empty() && !line.contains("---") && !line.contains("version"))
+            let version = output
+                .stdout
+                .lines()
+                .find(|line| {
+                    !line.trim().is_empty() && !line.contains("---") && !line.contains("version")
+                })
                 .map(|s| s.trim().to_string());
             Ok(ConnectionTestResult {
                 success: true,
@@ -138,10 +142,10 @@ impl DatabaseManager {
             };
             Ok(ConnectionTestResult {
                 success: false,
-                message: if error_msg.is_empty() { 
-                    format!("Connection failed with exit code {}", output.exit_code) 
-                } else { 
-                    error_msg 
+                message: if error_msg.is_empty() {
+                    format!("Connection failed with exit code {}", output.exit_code)
+                } else {
+                    error_msg
                 },
                 version: None,
             })
@@ -174,10 +178,16 @@ impl DatabaseManager {
 
         // Check for errors in both stdout and stderr (2>&1 redirects stderr to stdout)
         let combined_output = format!("{}{}", output.stdout, output.stderr);
-        if output.exit_code != 0 || combined_output.to_lowercase().contains("error") || combined_output.contains("FATAL") {
+        if output.exit_code != 0
+            || combined_output.to_lowercase().contains("error")
+            || combined_output.contains("FATAL")
+        {
             let error_msg = if !output.stderr.is_empty() {
                 output.stderr.trim().to_string()
-            } else if output.stdout.contains("psql:") || output.stdout.contains("ERROR") || output.stdout.contains("FATAL") {
+            } else if output.stdout.contains("psql:")
+                || output.stdout.contains("ERROR")
+                || output.stdout.contains("FATAL")
+            {
                 output.stdout.trim().to_string()
             } else {
                 format!("Command failed with exit code {}", output.exit_code)
@@ -200,10 +210,19 @@ impl DatabaseManager {
             if !parts.is_empty() {
                 databases.push(DatabaseInfo {
                     name: parts.get(0).unwrap_or(&"").to_string(),
-                    size: parts.get(1).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
+                    size: parts
+                        .get(1)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
                     tables_count: None,
-                    charset: parts.get(3).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
-                    collation: parts.get(4).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
+                    charset: parts
+                        .get(3)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
+                    collation: parts
+                        .get(4)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
                 });
             }
         }
@@ -255,11 +274,26 @@ impl DatabaseManager {
                 tables.push(TableInfo {
                     name: parts.get(0).unwrap_or(&"").to_string(),
                     rows: parts.get(1).and_then(|s| s.parse().ok()),
-                    size: parts.get(2).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
-                    engine: parts.get(3).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
-                    collation: parts.get(4).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
-                    created_at: parts.get(5).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
-                    updated_at: parts.get(6).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
+                    size: parts
+                        .get(2)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
+                    engine: parts
+                        .get(3)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
+                    collation: parts
+                        .get(4)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
+                    created_at: parts
+                        .get(5)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
+                    updated_at: parts
+                        .get(6)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
                 });
             }
         }
@@ -315,15 +349,24 @@ impl DatabaseManager {
                 columns.push(ColumnInfo {
                     name: parts.get(0).unwrap_or(&"").to_string(),
                     data_type: parts.get(1).unwrap_or(&"").to_string(),
-                    is_nullable: parts.get(2).map(|s| s.to_uppercase() == "YES").unwrap_or(true),
-                    column_default: parts.get(3).map(|s| s.to_string()).filter(|s| !s.is_empty() && s != "NULL"),
+                    is_nullable: parts
+                        .get(2)
+                        .map(|s| s.to_uppercase() == "YES")
+                        .unwrap_or(true),
+                    column_default: parts
+                        .get(3)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty() && s != "NULL"),
                     is_primary_key: column_key.contains("PRI"),
                     is_unique: column_key.contains("UNI"),
                     is_auto_increment: extra.contains("auto_increment"),
                     max_length: parts.get(6).and_then(|s| s.parse().ok()),
                     numeric_precision: parts.get(7).and_then(|s| s.parse().ok()),
                     numeric_scale: parts.get(8).and_then(|s| s.parse().ok()),
-                    comment: parts.get(9).map(|s| s.to_string()).filter(|s| !s.is_empty()),
+                    comment: parts
+                        .get(9)
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty()),
                 });
             }
         }
@@ -377,7 +420,10 @@ impl DatabaseManager {
         let output = self.ssh_client.execute_command(server, &cmd, Some(120))?;
         let execution_time = start.elapsed().as_millis() as u64;
 
-        if output.exit_code != 0 || output.stdout.contains("ERROR") || output.stderr.contains("ERROR") {
+        if output.exit_code != 0
+            || output.stdout.contains("ERROR")
+            || output.stderr.contains("ERROR")
+        {
             let error_msg = if !output.stderr.is_empty() {
                 output.stderr.clone()
             } else {
@@ -397,7 +443,9 @@ impl DatabaseManager {
             let mut lines: Vec<&str> = output.stdout.lines().collect();
             let columns: Vec<String> = if !lines.is_empty() {
                 match conn.db_type {
-                    DatabaseType::MySQL => lines.remove(0).split('\t').map(|s| s.to_string()).collect(),
+                    DatabaseType::MySQL => {
+                        lines.remove(0).split('\t').map(|s| s.to_string()).collect()
+                    }
                     DatabaseType::PostgreSQL => {
                         // PostgreSQL with -t doesn't include headers, need to get from query
                         vec![] // Will be populated from first row structure
@@ -483,7 +531,6 @@ impl DatabaseManager {
         }
     }
 
-
     /// Get table data with pagination
     pub fn get_table_data(
         &self,
@@ -493,7 +540,7 @@ impl DatabaseManager {
     ) -> Result<TableData> {
         // Get columns first
         let columns = self.get_table_columns(server, conn, &input.database, &input.table)?;
-        
+
         // Find primary key columns
         let primary_key_columns: Vec<String> = columns
             .iter()
@@ -523,7 +570,13 @@ impl DatabaseManager {
             DatabaseType::MySQL => {
                 format!(
                     "mysql -h {} -P {} -u {} -p'{}' {} -N -e \"SELECT COUNT(*) FROM {} {};\"",
-                    conn.host, conn.port, conn.username, conn.password, input.database, input.table, where_clause
+                    conn.host,
+                    conn.port,
+                    conn.username,
+                    conn.password,
+                    input.database,
+                    input.table,
+                    where_clause
                 )
             }
             DatabaseType::PostgreSQL => {
@@ -534,7 +587,9 @@ impl DatabaseManager {
             }
         };
 
-        let count_output = self.ssh_client.execute_command(server, &count_cmd, Some(30))?;
+        let count_output = self
+            .ssh_client
+            .execute_command(server, &count_cmd, Some(30))?;
         let total_rows: i64 = count_output.stdout.trim().parse().unwrap_or(0);
 
         // Get data
@@ -553,7 +608,9 @@ impl DatabaseManager {
             }
         };
 
-        let data_output = self.ssh_client.execute_command(server, &data_cmd, Some(60))?;
+        let data_output = self
+            .ssh_client
+            .execute_command(server, &data_cmd, Some(60))?;
 
         let rows: Vec<Vec<serde_json::Value>> = data_output
             .stdout
@@ -624,7 +681,7 @@ impl DatabaseManager {
         );
 
         let result = self.execute_query(server, conn, &input.database, &query)?;
-        
+
         if let Some(error) = result.error {
             return Err(anyhow!("Update failed: {}", error));
         }
@@ -649,12 +706,16 @@ impl DatabaseManager {
         let query = format!(
             "INSERT INTO {} ({}) VALUES ({});",
             input.table,
-            columns.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(", "),
+            columns
+                .iter()
+                .map(|c| c.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
             values.join(", ")
         );
 
         let result = self.execute_query(server, conn, &input.database, &query)?;
-        
+
         if let Some(error) = result.error {
             return Err(anyhow!("Insert failed: {}", error));
         }
@@ -687,7 +748,7 @@ impl DatabaseManager {
             );
 
             let result = self.execute_query(server, conn, &input.database, &query)?;
-            
+
             if let Some(error) = result.error {
                 return Err(anyhow!("Delete failed: {}", error));
             }
@@ -701,12 +762,10 @@ impl DatabaseManager {
     fn format_value(&self, value: &serde_json::Value, db_type: &DatabaseType) -> String {
         match value {
             serde_json::Value::Null => "NULL".to_string(),
-            serde_json::Value::Bool(b) => {
-                match db_type {
-                    DatabaseType::MySQL => if *b { "1" } else { "0" }.to_string(),
-                    DatabaseType::PostgreSQL => if *b { "TRUE" } else { "FALSE" }.to_string(),
-                }
-            }
+            serde_json::Value::Bool(b) => match db_type {
+                DatabaseType::MySQL => if *b { "1" } else { "0" }.to_string(),
+                DatabaseType::PostgreSQL => if *b { "TRUE" } else { "FALSE" }.to_string(),
+            },
             serde_json::Value::Number(n) => n.to_string(),
             serde_json::Value::String(s) => {
                 let escaped = s.replace("'", "''");
@@ -780,7 +839,7 @@ impl DatabaseManager {
                     "CREATE USER '{}'@'{}' IDENTIFIED BY '{}';",
                     input.username, input.host, input.password
                 );
-                
+
                 let grant = if let Some(ref db) = input.database {
                     format!(
                         "GRANT {} ON {}.* TO '{}'@'{}';",
@@ -808,7 +867,7 @@ impl DatabaseManager {
                     "CREATE USER {} WITH PASSWORD '{}';",
                     input.username, input.password
                 );
-                
+
                 let grant = if let Some(ref db) = input.database {
                     format!(
                         "GRANT {} ON DATABASE {} TO {};",
@@ -1081,7 +1140,7 @@ impl DatabaseManager {
         database: Option<&str>,
     ) -> Result<()> {
         let priv_str = privileges.join(", ");
-        
+
         let cmd = match conn.db_type {
             DatabaseType::MySQL => {
                 let target = match database {
@@ -1127,7 +1186,7 @@ impl DatabaseManager {
         database: Option<&str>,
     ) -> Result<()> {
         let priv_str = privileges.join(", ");
-        
+
         let cmd = match conn.db_type {
             DatabaseType::MySQL => {
                 let target = match database {
@@ -1206,7 +1265,7 @@ impl DatabaseManager {
 
         for col in &input.columns {
             let mut def = format!("{} {}", col.name, col.data_type);
-            
+
             if let Some(len) = col.length {
                 def = format!("{}({})", def, len);
             }
@@ -1249,9 +1308,11 @@ impl DatabaseManager {
         }
 
         let engine_clause = match conn.db_type {
-            DatabaseType::MySQL => {
-                input.engine.as_ref().map(|e| format!(" ENGINE={}", e)).unwrap_or_default()
-            }
+            DatabaseType::MySQL => input
+                .engine
+                .as_ref()
+                .map(|e| format!(" ENGINE={}", e))
+                .unwrap_or_default(),
             DatabaseType::PostgreSQL => String::new(),
         };
 
@@ -1364,7 +1425,7 @@ impl DatabaseManager {
     ) -> Result<super::types::TableData> {
         // Get columns first
         let table_columns = self.get_table_columns(server, conn, database, table)?;
-        
+
         // Find primary key columns
         let primary_key_columns: Vec<String> = table_columns
             .iter()
@@ -1374,7 +1435,10 @@ impl DatabaseManager {
 
         // Build search condition
         let search_columns = if columns.is_empty() {
-            table_columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>()
+            table_columns
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<_>>()
         } else {
             columns.to_vec()
         };
@@ -1382,11 +1446,9 @@ impl DatabaseManager {
         let escaped_term = search_term.replace("'", "''");
         let where_conditions: Vec<String> = search_columns
             .iter()
-            .map(|col| {
-                match conn.db_type {
-                    DatabaseType::MySQL => format!("{} LIKE '%{}%'", col, escaped_term),
-                    DatabaseType::PostgreSQL => format!("{}::text ILIKE '%{}%'", col, escaped_term),
-                }
+            .map(|col| match conn.db_type {
+                DatabaseType::MySQL => format!("{} LIKE '%{}%'", col, escaped_term),
+                DatabaseType::PostgreSQL => format!("{}::text ILIKE '%{}%'", col, escaped_term),
             })
             .collect();
 
@@ -1403,7 +1465,13 @@ impl DatabaseManager {
             DatabaseType::MySQL => {
                 format!(
                     "mysql -h {} -P {} -u {} -p'{}' {} -N -e \"SELECT COUNT(*) FROM {} {};\"",
-                    conn.host, conn.port, conn.username, conn.password, database, table, where_clause
+                    conn.host,
+                    conn.port,
+                    conn.username,
+                    conn.password,
+                    database,
+                    table,
+                    where_clause
                 )
             }
             DatabaseType::PostgreSQL => {
@@ -1414,7 +1482,9 @@ impl DatabaseManager {
             }
         };
 
-        let count_output = self.ssh_client.execute_command(server, &count_cmd, Some(30))?;
+        let count_output = self
+            .ssh_client
+            .execute_command(server, &count_cmd, Some(30))?;
         let total_rows: i64 = count_output.stdout.trim().parse().unwrap_or(0);
 
         // Get data
@@ -1433,7 +1503,9 @@ impl DatabaseManager {
             }
         };
 
-        let data_output = self.ssh_client.execute_command(server, &data_cmd, Some(60))?;
+        let data_output = self
+            .ssh_client
+            .execute_command(server, &data_cmd, Some(60))?;
 
         let rows: Vec<Vec<serde_json::Value>> = data_output
             .stdout
@@ -1483,7 +1555,7 @@ impl DatabaseManager {
     ) -> Result<()> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             INSERT INTO query_history 
@@ -1508,7 +1580,11 @@ impl DatabaseManager {
     }
 
     /// Get query history for a connection
-    pub async fn get_query_history(&self, connection_id: &str, limit: i32) -> Result<Vec<QueryHistoryEntry>> {
+    pub async fn get_query_history(
+        &self,
+        connection_id: &str,
+        limit: i32,
+    ) -> Result<Vec<QueryHistoryEntry>> {
         let rows: Vec<QueryHistoryRow> = sqlx::query_as(
             "SELECT * FROM query_history WHERE connection_id = ? ORDER BY executed_at DESC LIMIT ?",
         )
@@ -1538,7 +1614,7 @@ impl DatabaseManager {
     pub async fn save_query(&self, input: SaveQueryInput) -> Result<SavedQuery> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         sqlx::query(
             r#"
             INSERT INTO saved_queries 
@@ -1605,18 +1681,20 @@ impl DatabaseManager {
     /// Update a connection
     pub async fn update_connection(&self, id: &str, input: UpdateConnectionInput) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         // Get current connection to merge updates
-        let current = self.get_connection(id).await
+        let current = self
+            .get_connection(id)
+            .await
             .ok_or_else(|| anyhow!("Connection not found: {}", id))?;
-        
+
         let name = input.name.unwrap_or(current.name);
         let host = input.host.unwrap_or(current.host);
         let port = input.port.unwrap_or(current.port);
         let username = input.username.unwrap_or(current.username);
         let password = input.password.unwrap_or(current.password);
         let database = input.database.or(current.database);
-        
+
         sqlx::query(
             r#"
             UPDATE database_connections 
@@ -1649,7 +1727,7 @@ impl DatabaseManager {
         options: &super::types::BackupOptions,
     ) -> Result<super::types::BackupResult> {
         let start = std::time::Instant::now();
-        
+
         // Build table list if specified
         let table_args = match &options.tables {
             Some(tables) if !tables.is_empty() => tables.join(" "),
@@ -1665,20 +1743,20 @@ impl DatabaseManager {
                     format!("-u {}", conn.username),
                     format!("-p'{}'", conn.password),
                 ];
-                
+
                 if !options.include_structure && options.include_data {
                     args.push("--no-create-info".to_string());
                 }
                 if options.include_structure && !options.include_data {
                     args.push("--no-data".to_string());
                 }
-                
+
                 args.push(options.database.clone());
-                
+
                 if !table_args.is_empty() {
                     args.push(table_args);
                 }
-                
+
                 format!("mysqldump {}", args.join(" "))
             }
             DatabaseType::PostgreSQL => {
@@ -1688,20 +1766,20 @@ impl DatabaseManager {
                     format!("-U {}", conn.username),
                     format!("-d {}", options.database),
                 ];
-                
+
                 if !options.include_structure && options.include_data {
                     args.push("--data-only".to_string());
                 }
                 if options.include_structure && !options.include_data {
                     args.push("--schema-only".to_string());
                 }
-                
+
                 if let Some(tables) = &options.tables {
                     for table in tables {
                         args.push(format!("-t {}", table));
                     }
                 }
-                
+
                 format!("PGPASSWORD='{}' pg_dump {}", conn.password, args.join(" "))
             }
         };
@@ -1737,7 +1815,10 @@ impl DatabaseManager {
 
         // Get file size if saved to remote path
         let file_size = if let Some(ref remote_path) = options.remote_path {
-            let size_cmd = format!("stat -c%s {} 2>/dev/null || stat -f%z {}", remote_path, remote_path);
+            let size_cmd = format!(
+                "stat -c%s {} 2>/dev/null || stat -f%z {}",
+                remote_path, remote_path
+            );
             if let Ok(size_output) = self.ssh_client.execute_command(server, &size_cmd, Some(10)) {
                 size_output.stdout.trim().parse().ok()
             } else {
@@ -1786,13 +1867,23 @@ impl DatabaseManager {
                     DatabaseType::MySQL => {
                         format!(
                             "{} | mysql -h {} -P {} -u {} -p'{}' {}",
-                            cat_cmd, conn.host, conn.port, conn.username, conn.password, options.database
+                            cat_cmd,
+                            conn.host,
+                            conn.port,
+                            conn.username,
+                            conn.password,
+                            options.database
                         )
                     }
                     DatabaseType::PostgreSQL => {
                         format!(
                             "{} | PGPASSWORD='{}' psql -h {} -p {} -U {} -d {}",
-                            cat_cmd, conn.password, conn.host, conn.port, conn.username, options.database
+                            cat_cmd,
+                            conn.password,
+                            conn.host,
+                            conn.port,
+                            conn.username,
+                            options.database
                         )
                     }
                 }
@@ -1801,20 +1892,26 @@ impl DatabaseManager {
                 // For content, we need to write to a temp file first
                 let temp_file = format!("/tmp/db_restore_{}.sql", uuid::Uuid::new_v4());
                 let escaped_content = content.replace("'", "'\\''");
-                
+
                 match conn.db_type {
                     DatabaseType::MySQL => {
                         format!(
                             "echo '{}' > {} && mysql -h {} -P {} -u {} -p'{}' {} < {} && rm -f {}",
-                            escaped_content, temp_file, conn.host, conn.port, conn.username, 
-                            conn.password, options.database, temp_file, temp_file
+                            escaped_content,
+                            temp_file,
+                            conn.host,
+                            conn.port,
+                            conn.username,
+                            conn.password,
+                            options.database,
+                            temp_file,
+                            temp_file
                         )
                     }
                     DatabaseType::PostgreSQL => {
                         format!(
                             "echo '{}' > {} && PGPASSWORD='{}' psql -h {} -p {} -U {} -d {} < {} && rm -f {}",
-                            escaped_content, temp_file, conn.password, conn.host, conn.port, 
-                            conn.username, options.database, temp_file, temp_file
+                            escaped_content, temp_file, conn.password, conn.host, conn.port, conn.username, options.database, temp_file, temp_file
                         )
                     }
                 }
@@ -1839,12 +1936,14 @@ impl DatabaseManager {
                     )
                 }
             };
-            
+
             let _ = self.ssh_client.execute_command(server, &drop_cmd, Some(60));
         }
 
         // Execute restore
-        let output = self.ssh_client.execute_command(server, &restore_cmd, Some(600))?;
+        let output = self
+            .ssh_client
+            .execute_command(server, &restore_cmd, Some(600))?;
         let duration_ms = start.elapsed().as_millis() as u64;
 
         if output.exit_code != 0 {
@@ -1872,7 +1971,10 @@ impl DatabaseManager {
             }
         };
 
-        let tables_restored = if let Ok(count_output) = self.ssh_client.execute_command(server, &count_cmd, Some(10)) {
+        let tables_restored = if let Ok(count_output) =
+            self.ssh_client
+                .execute_command(server, &count_cmd, Some(10))
+        {
             count_output.stdout.trim().parse().unwrap_or(0)
         } else {
             0
@@ -1924,11 +2026,7 @@ impl DatabaseManager {
     }
 
     /// Delete a backup file
-    pub fn delete_backup_file(
-        &self,
-        server: &Server,
-        file_path: &str,
-    ) -> Result<()> {
+    pub fn delete_backup_file(&self, server: &Server, file_path: &str) -> Result<()> {
         let cmd = format!("rm -f {}", file_path);
         let output = self.ssh_client.execute_command(server, &cmd, Some(10))?;
 
@@ -1944,7 +2042,9 @@ impl DatabaseManager {
         &self,
         entry: &super::types::BackupHistoryEntry,
     ) -> Result<()> {
-        let tables_json = entry.tables.as_ref()
+        let tables_json = entry
+            .tables
+            .as_ref()
             .map(|t| serde_json::to_string(t).unwrap_or_default());
 
         sqlx::query(
@@ -1997,7 +2097,10 @@ impl DatabaseManager {
         }
         .map_err(|e| anyhow!("Failed to get backup history: {}", e))?;
 
-        Ok(rows.into_iter().map(|r: super::types::BackupHistoryRow| r.into()).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r: super::types::BackupHistoryRow| r.into())
+            .collect())
     }
 
     /// Clear backup history

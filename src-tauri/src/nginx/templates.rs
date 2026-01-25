@@ -22,7 +22,8 @@ pub fn generate_config(
         let default_key = format!("/etc/letsencrypt/live/{}/privkey.pem", domain);
         let cert = ssl_cert.unwrap_or(&default_cert);
         let key = ssl_key.unwrap_or(&default_key);
-        format!(r#"
+        format!(
+            r#"
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     
@@ -36,13 +37,16 @@ pub fn generate_config(
     ssl_prefer_server_ciphers off;
     
     # HSTS
-    add_header Strict-Transport-Security "max-age=63072000" always;"#, cert, key)
+    add_header Strict-Transport-Security "max-age=63072000" always;"#,
+            cert, key
+        )
     } else {
         "    listen 80;\n    listen [::]:80;".to_string()
     };
 
     let http_redirect = if ssl_enabled {
-        format!(r#"
+        format!(
+            r#"
 # HTTP to HTTPS redirect
 server {{
     listen 80;
@@ -51,7 +55,9 @@ server {{
     return 301 https://$server_name$request_uri;
 }}
 
-"#, server_name)
+"#,
+            server_name
+        )
     } else {
         String::new()
     };
@@ -61,20 +67,41 @@ server {{
         TemplateType::Php => generate_php_location(root_path),
         TemplateType::PhpLaravel => generate_laravel_location(root_path),
         TemplateType::PhpWordpress => generate_wordpress_location(root_path),
-        TemplateType::NodeJs => generate_nodejs_location(proxy_pass.unwrap_or("http://127.0.0.1:3000")),
-        TemplateType::NodeNextJs => generate_nextjs_location(proxy_pass.unwrap_or("http://127.0.0.1:3000")),
-        TemplateType::Python => generate_python_location(proxy_pass.unwrap_or("http://127.0.0.1:8000")),
-        TemplateType::PythonDjango => generate_django_location(root_path, proxy_pass.unwrap_or("http://127.0.0.1:8000")),
-        TemplateType::PythonFlask => generate_flask_location(proxy_pass.unwrap_or("http://127.0.0.1:5000")),
-        TemplateType::RubyRails => generate_rails_location(proxy_pass.unwrap_or("http://127.0.0.1:3000")),
+        TemplateType::NodeJs => {
+            generate_nodejs_location(proxy_pass.unwrap_or("http://127.0.0.1:3000"))
+        }
+        TemplateType::NodeNextJs => {
+            generate_nextjs_location(proxy_pass.unwrap_or("http://127.0.0.1:3000"))
+        }
+        TemplateType::Python => {
+            generate_python_location(proxy_pass.unwrap_or("http://127.0.0.1:8000"))
+        }
+        TemplateType::PythonDjango => {
+            generate_django_location(root_path, proxy_pass.unwrap_or("http://127.0.0.1:8000"))
+        }
+        TemplateType::PythonFlask => {
+            generate_flask_location(proxy_pass.unwrap_or("http://127.0.0.1:5000"))
+        }
+        TemplateType::RubyRails => {
+            generate_rails_location(proxy_pass.unwrap_or("http://127.0.0.1:3000"))
+        }
         TemplateType::Java => generate_java_location(proxy_pass.unwrap_or("http://127.0.0.1:8080")),
-        TemplateType::GoLang => generate_golang_location(proxy_pass.unwrap_or("http://127.0.0.1:8080")),
-        TemplateType::ReverseProxy => generate_reverse_proxy_location(proxy_pass.unwrap_or("http://127.0.0.1:8080")),
-        TemplateType::LoadBalancer => generate_load_balancer_config(domain, proxy_pass.unwrap_or("http://127.0.0.1:8080")),
-        TemplateType::Custom => "    # Custom configuration - add your own location blocks".to_string(),
+        TemplateType::GoLang => {
+            generate_golang_location(proxy_pass.unwrap_or("http://127.0.0.1:8080"))
+        }
+        TemplateType::ReverseProxy => {
+            generate_reverse_proxy_location(proxy_pass.unwrap_or("http://127.0.0.1:8080"))
+        }
+        TemplateType::LoadBalancer => {
+            generate_load_balancer_config(domain, proxy_pass.unwrap_or("http://127.0.0.1:8080"))
+        }
+        TemplateType::Custom => {
+            "    # Custom configuration - add your own location blocks".to_string()
+        }
     };
 
-    format!(r#"{}server {{
+    format!(
+        r#"{}server {{
 {}
     server_name {};
     root {};
@@ -90,7 +117,9 @@ server {{
 
 {}
 }}
-"#, http_redirect, ssl_config, server_name, root_path, domain, domain, location_block)
+"#,
+        http_redirect, ssl_config, server_name, root_path, domain, domain, location_block
+    )
 }
 
 fn generate_static_location() -> String {
@@ -109,11 +138,13 @@ fn generate_static_location() -> String {
     # Deny access to hidden files
     location ~ /\. {
         deny all;
-    }"#.to_string()
+    }"#
+    .to_string()
 }
 
 fn generate_php_location(root_path: &str) -> String {
-    format!(r#"    index index.php index.html index.htm;
+    format!(
+        r#"    index index.php index.html index.htm;
 
     location / {{
         try_files $uri $uri/ /index.php?$query_string;
@@ -130,11 +161,14 @@ fn generate_php_location(root_path: &str) -> String {
 
     location ~ /\.ht {{
         deny all;
-    }}"#, root_path)
+    }}"#,
+        root_path
+    )
 }
 
 fn generate_laravel_location(root_path: &str) -> String {
-    format!(r#"    index index.php;
+    format!(
+        r#"    index index.php;
 
     charset utf-8;
 
@@ -155,11 +189,14 @@ fn generate_laravel_location(root_path: &str) -> String {
 
     location ~ /\.(?!well-known).* {{
         deny all;
-    }}"#, root_path)
+    }}"#,
+        root_path
+    )
 }
 
 fn generate_wordpress_location(root_path: &str) -> String {
-    format!(r#"    index index.php index.html index.htm;
+    format!(
+        r#"    index index.php index.html index.htm;
 
     # WordPress permalinks
     location / {{
@@ -196,11 +233,14 @@ fn generate_wordpress_location(root_path: &str) -> String {
     # Security for uploads
     location ~* /(?:uploads|files)/.*\.php$ {{
         deny all;
-    }}"#, root_path)
+    }}"#,
+        root_path
+    )
 }
 
 fn generate_nodejs_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -211,11 +251,14 @@ fn generate_nodejs_location(proxy_pass: &str) -> String {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
         proxy_read_timeout 86400;
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_nextjs_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -237,11 +280,14 @@ fn generate_nextjs_location(proxy_pass: &str) -> String {
     # Next.js image optimization
     location /_next/image {{
         proxy_pass {};
-    }}"#, proxy_pass, proxy_pass, proxy_pass)
+    }}"#,
+        proxy_pass, proxy_pass, proxy_pass
+    )
 }
 
 fn generate_python_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -250,11 +296,14 @@ fn generate_python_location(proxy_pass: &str) -> String {
         proxy_connect_timeout 300;
         proxy_send_timeout 300;
         proxy_read_timeout 300;
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_django_location(root_path: &str, proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -270,22 +319,28 @@ fn generate_django_location(root_path: &str, proxy_pass: &str) -> String {
     location /media/ {{
         alias {}/media/;
         expires 30d;
-    }}"#, proxy_pass, root_path, root_path)
+    }}"#,
+        proxy_pass, root_path, root_path
+    )
 }
 
 fn generate_flask_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_redirect off;
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_rails_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -300,11 +355,14 @@ fn generate_rails_location(proxy_pass: &str) -> String {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }}"#, proxy_pass, proxy_pass)
+    }}"#,
+        proxy_pass, proxy_pass
+    )
 }
 
 fn generate_java_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -316,11 +374,14 @@ fn generate_java_location(proxy_pass: &str) -> String {
         proxy_buffer_size 128k;
         proxy_buffers 4 256k;
         proxy_busy_buffers_size 256k;
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_golang_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -329,11 +390,14 @@ fn generate_golang_location(proxy_pass: &str) -> String {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_reverse_proxy_location(proxy_pass: &str) -> String {
-    format!(r#"    location / {{
+    format!(
+        r#"    location / {{
         proxy_pass {};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -344,11 +408,14 @@ fn generate_reverse_proxy_location(proxy_pass: &str) -> String {
         proxy_set_header Connection "upgrade";
         proxy_buffering off;
         proxy_request_buffering off;
-    }}"#, proxy_pass)
+    }}"#,
+        proxy_pass
+    )
 }
 
 fn generate_load_balancer_config(domain: &str, _proxy_pass: &str) -> String {
-    format!(r#"# Upstream servers - modify as needed
+    format!(
+        r#"# Upstream servers - modify as needed
 upstream {}_backend {{
     least_conn;
     server 127.0.0.1:8001 weight=3;
@@ -368,7 +435,10 @@ upstream {}_backend {{
         proxy_connect_timeout 5s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
-    }}"#, domain.replace('.', "_"), domain.replace('.', "_"))
+    }}"#,
+        domain.replace('.', "_"),
+        domain.replace('.', "_")
+    )
 }
 
 /// Get list of available config snippets

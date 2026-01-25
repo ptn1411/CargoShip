@@ -1,5 +1,5 @@
-use crate::error::{AppError, Result};
 use super::models::*;
+use crate::error::{AppError, Result};
 use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -16,13 +16,19 @@ impl SnippetLibrary {
     /// Validate snippet input
     fn validate_input(name: &str, command: &str, category: &str) -> Result<()> {
         if name.trim().is_empty() {
-            return Err(AppError::ValidationError("Snippet name cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Snippet name cannot be empty".to_string(),
+            ));
         }
         if command.trim().is_empty() {
-            return Err(AppError::ValidationError("Snippet command cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Snippet command cannot be empty".to_string(),
+            ));
         }
         if category.trim().is_empty() {
-            return Err(AppError::ValidationError("Snippet category cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Snippet category cannot be empty".to_string(),
+            ));
         }
         Ok(())
     }
@@ -65,16 +71,13 @@ impl SnippetLibrary {
         })
     }
 
-
     /// Get a snippet by ID
     /// Requirements: 5.2
     pub async fn get_snippet(&self, id: &str) -> Result<Option<Snippet>> {
-        let row = sqlx::query_as::<_, SnippetRow>(
-            "SELECT * FROM snippets WHERE id = ?"
-        )
-        .bind(id)
-        .fetch_optional(&self.db)
-        .await?;
+        let row = sqlx::query_as::<_, SnippetRow>("SELECT * FROM snippets WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.db)
+            .await?;
 
         Ok(row.map(|r| r.into_snippet()))
     }
@@ -82,11 +85,10 @@ impl SnippetLibrary {
     /// List all snippets
     /// Requirements: 5.2
     pub async fn list_snippets(&self) -> Result<Vec<Snippet>> {
-        let rows = sqlx::query_as::<_, SnippetRow>(
-            "SELECT * FROM snippets ORDER BY category, name"
-        )
-        .fetch_all(&self.db)
-        .await?;
+        let rows =
+            sqlx::query_as::<_, SnippetRow>("SELECT * FROM snippets ORDER BY category, name")
+                .fetch_all(&self.db)
+                .await?;
 
         Ok(rows.into_iter().map(|r| r.into_snippet()).collect())
     }
@@ -95,7 +97,7 @@ impl SnippetLibrary {
     /// Requirements: 5.2
     pub async fn list_by_category(&self, category: &str) -> Result<Vec<Snippet>> {
         let rows = sqlx::query_as::<_, SnippetRow>(
-            "SELECT * FROM snippets WHERE category = ? ORDER BY name"
+            "SELECT * FROM snippets WHERE category = ? ORDER BY name",
         )
         .bind(category)
         .fetch_all(&self.db)
@@ -108,13 +110,13 @@ impl SnippetLibrary {
     /// Requirements: 5.3
     pub async fn search_snippets(&self, query: &str) -> Result<Vec<Snippet>> {
         let search_pattern = format!("%{}%", query.to_lowercase());
-        
+
         let rows = sqlx::query_as::<_, SnippetRow>(
             r#"
             SELECT * FROM snippets 
             WHERE LOWER(name) LIKE ? OR LOWER(command) LIKE ?
             ORDER BY category, name
-            "#
+            "#,
         )
         .bind(&search_pattern)
         .bind(&search_pattern)
@@ -127,7 +129,9 @@ impl SnippetLibrary {
     /// Update an existing snippet
     /// Requirements: 5.1
     pub async fn update_snippet(&self, id: &str, input: UpdateSnippetInput) -> Result<Snippet> {
-        let existing = self.get_snippet(id).await?
+        let existing = self
+            .get_snippet(id)
+            .await?
             .ok_or_else(|| AppError::ValidationError(format!("Snippet not found: {}", id)))?;
 
         let name = input.name.unwrap_or(existing.name);
@@ -179,18 +183,20 @@ impl SnippetLibrary {
             .await?;
 
         if result.rows_affected() == 0 {
-            return Err(AppError::ValidationError(format!("Snippet not found: {}", id)));
+            return Err(AppError::ValidationError(format!(
+                "Snippet not found: {}",
+                id
+            )));
         }
 
         Ok(())
     }
 
-
     /// Export all snippets to JSON
     /// Requirements: 5.6
     pub async fn export_snippets(&self) -> Result<String> {
         let snippets = self.list_snippets().await?;
-        
+
         let export = SnippetExport {
             version: "1.0".to_string(),
             exported_at: Utc::now(),
@@ -214,7 +220,7 @@ impl SnippetLibrary {
         for item in export.snippets {
             // Check if snippet with same name already exists
             let existing = self.find_by_name(&item.name).await?;
-            
+
             if existing.is_some() {
                 skipped += 1;
                 continue;
@@ -251,12 +257,10 @@ impl SnippetLibrary {
 
     /// Find a snippet by name (for import deduplication)
     async fn find_by_name(&self, name: &str) -> Result<Option<Snippet>> {
-        let row = sqlx::query_as::<_, SnippetRow>(
-            "SELECT * FROM snippets WHERE name = ?"
-        )
-        .bind(name)
-        .fetch_optional(&self.db)
-        .await?;
+        let row = sqlx::query_as::<_, SnippetRow>("SELECT * FROM snippets WHERE name = ?")
+            .bind(name)
+            .fetch_optional(&self.db)
+            .await?;
 
         Ok(row.map(|r| r.into_snippet()))
     }
@@ -264,7 +268,7 @@ impl SnippetLibrary {
     /// Get all unique categories
     pub async fn list_categories(&self) -> Result<Vec<String>> {
         let categories = sqlx::query_scalar::<_, String>(
-            "SELECT DISTINCT category FROM snippets ORDER BY category"
+            "SELECT DISTINCT category FROM snippets ORDER BY category",
         )
         .fetch_all(&self.db)
         .await?;
@@ -319,7 +323,6 @@ impl SnippetLibrary {
                 category: "System".to_string(),
                 tags: vec!["uptime".to_string()],
             },
-
             // Network
             CreateSnippetInput {
                 name: "Network Interfaces".to_string(),
@@ -349,7 +352,6 @@ impl SnippetLibrary {
                 category: "Network".to_string(),
                 tags: vec!["dns".to_string(), "network".to_string()],
             },
-
             // Docker
             CreateSnippetInput {
                 name: "Docker Containers".to_string(),
@@ -386,7 +388,6 @@ impl SnippetLibrary {
                 category: "Docker".to_string(),
                 tags: vec!["docker".to_string(), "cleanup".to_string()],
             },
-
             // Services
             CreateSnippetInput {
                 name: "List Services".to_string(),
@@ -409,7 +410,6 @@ impl SnippetLibrary {
                 category: "Services".to_string(),
                 tags: vec!["systemd".to_string(), "status".to_string()],
             },
-
             // Logs
             CreateSnippetInput {
                 name: "System Logs".to_string(),
@@ -430,9 +430,12 @@ impl SnippetLibrary {
                 description: Some("View authentication logs".to_string()),
                 command: "tail -50 /var/log/auth.log".to_string(),
                 category: "Logs".to_string(),
-                tags: vec!["logs".to_string(), "auth".to_string(), "security".to_string()],
+                tags: vec![
+                    "logs".to_string(),
+                    "auth".to_string(),
+                    "security".to_string(),
+                ],
             },
-
             // Files
             CreateSnippetInput {
                 name: "Find Large Files".to_string(),
@@ -455,7 +458,6 @@ impl SnippetLibrary {
                 category: "Files".to_string(),
                 tags: vec!["files".to_string(), "recent".to_string()],
             },
-
             // Security
             CreateSnippetInput {
                 name: "Who's Logged In".to_string(),
@@ -478,7 +480,6 @@ impl SnippetLibrary {
                 category: "Security".to_string(),
                 tags: vec!["security".to_string(), "failed".to_string()],
             },
-
             // Clawdbot
             CreateSnippetInput {
                 name: "Clawdbot Onboard".to_string(),
@@ -506,28 +507,45 @@ impl SnippetLibrary {
                 description: Some("Login to GitHub Copilot model auth".to_string()),
                 command: "clawdbot models auth login-github-copilot".to_string(),
                 category: "Clawdbot".to_string(),
-                tags: vec!["clawdbot".to_string(), "ai".to_string(), "copilot".to_string()],
+                tags: vec![
+                    "clawdbot".to_string(),
+                    "ai".to_string(),
+                    "copilot".to_string(),
+                ],
             },
             CreateSnippetInput {
                 name: "Clawdbot Set Gemini Auth".to_string(),
                 description: Some("Login to Google Antigravity Auth".to_string()),
-                command: "clawdbot models auth login --provider google-antigravity --set-default".to_string(),
+                command: "clawdbot models auth login --provider google-antigravity --set-default"
+                    .to_string(),
                 category: "Clawdbot".to_string(),
-                tags: vec!["clawdbot".to_string(), "ai".to_string(), "gemini".to_string()],
+                tags: vec![
+                    "clawdbot".to_string(),
+                    "ai".to_string(),
+                    "gemini".to_string(),
+                ],
             },
             CreateSnippetInput {
                 name: "Clawdbot Enable Antigravity".to_string(),
                 description: Some("Enable Google Antigravity Auth plugin".to_string()),
                 command: "clawdbot plugins enable google-antigravity-auth".to_string(),
                 category: "Clawdbot".to_string(),
-                tags: vec!["clawdbot".to_string(), "plugins".to_string(), "gemini".to_string()],
+                tags: vec![
+                    "clawdbot".to_string(),
+                    "plugins".to_string(),
+                    "gemini".to_string(),
+                ],
             },
             CreateSnippetInput {
                 name: "Clawdbot Set Model".to_string(),
                 description: Some("Set default model to GPT-4o".to_string()),
                 command: "clawdbot models set github-copilot/gpt-4o".to_string(),
                 category: "Clawdbot".to_string(),
-                tags: vec!["clawdbot".to_string(), "ai".to_string(), "config".to_string()],
+                tags: vec![
+                    "clawdbot".to_string(),
+                    "ai".to_string(),
+                    "config".to_string(),
+                ],
             },
             CreateSnippetInput {
                 name: "Clawdbot Gateway".to_string(),
@@ -540,11 +558,13 @@ impl SnippetLibrary {
 
         for input in default_snippets {
             // Check if snippet exists by name to avoid duplicates
-            let exists = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM snippets WHERE name = ?")
-                .bind(&input.name)
-                .fetch_one(&self.db)
-                .await
-                .unwrap_or(0) > 0;
+            let exists =
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM snippets WHERE name = ?")
+                    .bind(&input.name)
+                    .fetch_one(&self.db)
+                    .await
+                    .unwrap_or(0)
+                    > 0;
 
             if !exists {
                 if let Err(e) = self.create_snippet(input).await {

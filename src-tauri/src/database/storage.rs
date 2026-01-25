@@ -29,7 +29,8 @@ impl DatabaseStorage {
         };
 
         // Store password in keychain
-        self.credential_store.store_db_password(&conn.id, &conn.password)?;
+        self.credential_store
+            .store_db_password(&conn.id, &conn.password)?;
 
         // Store connection info in SQLite (without password)
         sqlx::query(
@@ -58,19 +59,20 @@ impl DatabaseStorage {
 
     /// Get a connection by ID (retrieves password from keychain)
     pub async fn get_connection(&self, id: &str) -> Result<Option<DatabaseConnection>> {
-        let row: Option<DbConnectionRow> = sqlx::query_as(
-            "SELECT * FROM database_connections WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to get connection: {}", e)))?;
+        let row: Option<DbConnectionRow> =
+            sqlx::query_as("SELECT * FROM database_connections WHERE id = ?")
+                .bind(id)
+                .fetch_optional(self.pool.as_ref())
+                .await
+                .map_err(|e| AppError::DatabaseError(format!("Failed to get connection: {}", e)))?;
 
         match row {
             Some(r) => {
                 let mut conn: DatabaseConnection = r.into();
                 // Retrieve password from keychain
-                conn.password = self.credential_store.retrieve_db_password(&conn.id)
+                conn.password = self
+                    .credential_store
+                    .retrieve_db_password(&conn.id)
                     .unwrap_or_default();
                 Ok(Some(conn))
             }
@@ -80,18 +82,21 @@ impl DatabaseStorage {
 
     /// List all connections (retrieves passwords from keychain)
     pub async fn list_connections(&self) -> Result<Vec<DatabaseConnection>> {
-        let rows: Vec<DbConnectionRow> = sqlx::query_as(
-            "SELECT * FROM database_connections ORDER BY name",
-        )
-        .fetch_all(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to list connections: {}", e)))?;
+        let rows: Vec<DbConnectionRow> =
+            sqlx::query_as("SELECT * FROM database_connections ORDER BY name")
+                .fetch_all(self.pool.as_ref())
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to list connections: {}", e))
+                })?;
 
         let mut connections: Vec<DatabaseConnection> = rows.into_iter().map(|r| r.into()).collect();
-        
+
         // Retrieve passwords from keychain
         for conn in &mut connections {
-            conn.password = self.credential_store.retrieve_db_password(&conn.id)
+            conn.password = self
+                .credential_store
+                .retrieve_db_password(&conn.id)
                 .unwrap_or_default();
         }
 
@@ -99,20 +104,26 @@ impl DatabaseStorage {
     }
 
     /// List connections by server ID
-    pub async fn list_connections_by_server(&self, server_id: &str) -> Result<Vec<DatabaseConnection>> {
-        let rows: Vec<DbConnectionRow> = sqlx::query_as(
-            "SELECT * FROM database_connections WHERE server_id = ? ORDER BY name",
-        )
-        .bind(server_id)
-        .fetch_all(self.pool.as_ref())
-        .await
-        .map_err(|e| AppError::DatabaseError(format!("Failed to list connections: {}", e)))?;
+    pub async fn list_connections_by_server(
+        &self,
+        server_id: &str,
+    ) -> Result<Vec<DatabaseConnection>> {
+        let rows: Vec<DbConnectionRow> =
+            sqlx::query_as("SELECT * FROM database_connections WHERE server_id = ? ORDER BY name")
+                .bind(server_id)
+                .fetch_all(self.pool.as_ref())
+                .await
+                .map_err(|e| {
+                    AppError::DatabaseError(format!("Failed to list connections: {}", e))
+                })?;
 
         let mut connections: Vec<DatabaseConnection> = rows.into_iter().map(|r| r.into()).collect();
-        
+
         // Retrieve passwords from keychain
         for conn in &mut connections {
-            conn.password = self.credential_store.retrieve_db_password(&conn.id)
+            conn.password = self
+                .credential_store
+                .retrieve_db_password(&conn.id)
                 .unwrap_or_default();
         }
 
@@ -137,7 +148,7 @@ impl DatabaseStorage {
     /// Update a connection
     pub async fn update_connection(&self, id: &str, input: &UpdateConnectionInput) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         // Update password in keychain if provided
         if let Some(ref password) = input.password {
             self.credential_store.store_db_password(id, password)?;
@@ -151,11 +162,26 @@ impl DatabaseStorage {
         let mut has_username = false;
         let mut has_database = false;
 
-        if input.name.is_some() { updates.push("name = ?"); has_name = true; }
-        if input.host.is_some() { updates.push("host = ?"); has_host = true; }
-        if input.port.is_some() { updates.push("port = ?"); has_port = true; }
-        if input.username.is_some() { updates.push("username = ?"); has_username = true; }
-        if input.database.is_some() { updates.push("database_name = ?"); has_database = true; }
+        if input.name.is_some() {
+            updates.push("name = ?");
+            has_name = true;
+        }
+        if input.host.is_some() {
+            updates.push("host = ?");
+            has_host = true;
+        }
+        if input.port.is_some() {
+            updates.push("port = ?");
+            has_port = true;
+        }
+        if input.username.is_some() {
+            updates.push("username = ?");
+            has_username = true;
+        }
+        if input.database.is_some() {
+            updates.push("database_name = ?");
+            has_database = true;
+        }
 
         let query = format!(
             "UPDATE database_connections SET {} WHERE id = ?",
@@ -163,13 +189,23 @@ impl DatabaseStorage {
         );
 
         let mut q = sqlx::query(&query).bind(&now);
-        
-        if has_name { q = q.bind(input.name.as_ref().unwrap()); }
-        if has_host { q = q.bind(input.host.as_ref().unwrap()); }
-        if has_port { q = q.bind(*input.port.as_ref().unwrap() as i32); }
-        if has_username { q = q.bind(input.username.as_ref().unwrap()); }
-        if has_database { q = q.bind(input.database.as_ref().unwrap()); }
-        
+
+        if has_name {
+            q = q.bind(input.name.as_ref().unwrap());
+        }
+        if has_host {
+            q = q.bind(input.host.as_ref().unwrap());
+        }
+        if has_port {
+            q = q.bind(*input.port.as_ref().unwrap() as i32);
+        }
+        if has_username {
+            q = q.bind(input.username.as_ref().unwrap());
+        }
+        if has_database {
+            q = q.bind(input.database.as_ref().unwrap());
+        }
+
         q = q.bind(id);
 
         q.execute(self.pool.as_ref())
@@ -207,7 +243,11 @@ impl DatabaseStorage {
     }
 
     /// Get query history for a connection
-    pub async fn get_query_history(&self, connection_id: &str, limit: i32) -> Result<Vec<QueryHistoryEntry>> {
+    pub async fn get_query_history(
+        &self,
+        connection_id: &str,
+        limit: i32,
+    ) -> Result<Vec<QueryHistoryEntry>> {
         let rows: Vec<QueryHistoryRow> = sqlx::query_as(
             "SELECT * FROM query_history WHERE connection_id = ? ORDER BY executed_at DESC LIMIT ?",
         )
@@ -226,7 +266,9 @@ impl DatabaseStorage {
             .bind(connection_id)
             .execute(self.pool.as_ref())
             .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to clear query history: {}", e)))?;
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to clear query history: {}", e))
+            })?;
 
         Ok(())
     }

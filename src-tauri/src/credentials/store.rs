@@ -9,12 +9,12 @@ const DB_PASSWORD_PREFIX: &str = "dbpassword";
 const DB_ENCRYPTION_KEY: &str = "db-encryption-key";
 
 /// CredentialStore manages secure credential storage using the system keychain.
-/// 
+///
 /// On different platforms, this uses:
 /// - Windows: Windows Credential Manager
 /// - macOS: macOS Keychain
 /// - Linux: libsecret (Secret Service API)
-/// 
+///
 /// Credentials are stored separately from the database to ensure sensitive data
 /// is protected by the OS-level secure storage mechanisms.
 pub struct CredentialStore {
@@ -91,66 +91,82 @@ impl CredentialStore {
 
     /// Stores a password credential for the given server ID.
     /// The password is encrypted and stored in the system keychain.
-    /// 
+    ///
     /// # Requirements
     /// - Requirement 2.1: Encrypt and store password in system keychain
     pub fn store_password(&self, server_id: &str, password: &str) -> Result<()> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
         if password.is_empty() {
-            return Err(AppError::ValidationError("Password cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Password cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(server_id, PASSWORD_PREFIX)?;
-        entry.set_password(password)
+        entry
+            .set_password(password)
             .map_err(|e| self.map_keyring_error(e, "store password"))
     }
 
     /// Retrieves a stored password credential for the given server ID.
     /// The password is decrypted from the system keychain.
-    /// 
+    ///
     /// # Requirements
     /// - Requirement 2.3: Decrypt and return credential without exposing in logs
     pub fn retrieve_password(&self, server_id: &str) -> Result<String> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(server_id, PASSWORD_PREFIX)?;
-        entry.get_password()
+        entry
+            .get_password()
             .map_err(|e| self.map_keyring_error(e, "retrieve password"))
     }
 
     /// Stores an SSH key path reference for the given server ID.
     /// The key path is stored securely in the system keychain.
-    /// 
+    ///
     /// # Requirements
     /// - Requirement 2.2: Store key path reference securely
     pub fn store_key_path(&self, server_id: &str, key_path: &str) -> Result<()> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
         if key_path.is_empty() {
-            return Err(AppError::ValidationError("Key path cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Key path cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(server_id, KEY_PATH_PREFIX)?;
-        entry.set_password(key_path)
+        entry
+            .set_password(key_path)
             .map_err(|e| self.map_keyring_error(e, "store key path"))
     }
 
     /// Retrieves a stored SSH key path for the given server ID.
-    /// 
+    ///
     /// # Requirements
     /// - Requirement 2.3: Return credential without exposing in logs
     pub fn retrieve_key_path(&self, server_id: &str) -> Result<String> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(server_id, KEY_PATH_PREFIX)?;
-        entry.get_password()
+        entry
+            .get_password()
             .map_err(|e| self.map_keyring_error(e, "retrieve key path"))
     }
 
@@ -158,12 +174,15 @@ impl CredentialStore {
     /// The passphrase is encrypted and stored in the system keychain.
     pub fn store_key_passphrase(&self, server_id: &str, passphrase: &str) -> Result<()> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
         // Empty passphrase is valid (means no passphrase on the key)
-        
+
         let entry = self.get_entry(server_id, KEY_PASSPHRASE_PREFIX)?;
-        entry.set_password(passphrase)
+        entry
+            .set_password(passphrase)
             .map_err(|e| self.map_keyring_error(e, "store key passphrase"))
     }
 
@@ -171,7 +190,9 @@ impl CredentialStore {
     /// Returns None if no passphrase is stored (key has no passphrase).
     pub fn retrieve_key_passphrase(&self, server_id: &str) -> Result<Option<String>> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(server_id, KEY_PASSPHRASE_PREFIX)?;
@@ -186,7 +207,9 @@ impl CredentialStore {
     /// Deletes the SSH key passphrase for the given server ID.
     pub fn delete_key_passphrase(&self, server_id: &str) -> Result<()> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
 
         if let Ok(entry) = self.get_entry(server_id, KEY_PASSPHRASE_PREFIX) {
@@ -201,12 +224,14 @@ impl CredentialStore {
 
     /// Deletes all credentials associated with the given server ID.
     /// This removes both password and key path entries if they exist.
-    /// 
+    ///
     /// # Requirements
     /// - Requirement 2.4: Remove associated credentials when server is deleted
     pub fn delete_credential(&self, server_id: &str) -> Result<()> {
         if server_id.is_empty() {
-            return Err(AppError::ValidationError("Server ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Server ID cannot be empty".to_string(),
+            ));
         }
 
         let mut errors = Vec::new();
@@ -245,7 +270,8 @@ impl CredentialStore {
             Ok(())
         } else {
             Err(AppError::CredentialError(format!(
-                "Failed to delete some credentials: {}", errors.join(", ")
+                "Failed to delete some credentials: {}",
+                errors.join(", ")
             )))
         }
     }
@@ -291,11 +317,12 @@ impl CredentialStore {
                 use rand::Rng;
                 let key_bytes: [u8; 32] = rand::thread_rng().gen();
                 let key_hex = hex::encode(key_bytes);
-                
+
                 // Store the new key
-                entry.set_password(&key_hex)
+                entry
+                    .set_password(&key_hex)
                     .map_err(|e| self.map_keyring_error(e, "store encryption key"))?;
-                
+
                 Ok(key_hex)
             }
             Err(e) => Err(self.map_keyring_error(e, "retrieve encryption key")),
@@ -317,29 +344,37 @@ impl CredentialStore {
     /// This keeps sensitive database credentials out of the SQLite file.
     pub fn store_db_password(&self, connection_id: &str, password: &str) -> Result<()> {
         if connection_id.is_empty() {
-            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Connection ID cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(connection_id, DB_PASSWORD_PREFIX)?;
-        entry.set_password(password)
+        entry
+            .set_password(password)
             .map_err(|e| self.map_keyring_error(e, "store database password"))
     }
 
     /// Retrieves a database connection password from the keychain.
     pub fn retrieve_db_password(&self, connection_id: &str) -> Result<String> {
         if connection_id.is_empty() {
-            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Connection ID cannot be empty".to_string(),
+            ));
         }
 
         let entry = self.get_entry(connection_id, DB_PASSWORD_PREFIX)?;
-        entry.get_password()
+        entry
+            .get_password()
             .map_err(|e| self.map_keyring_error(e, "retrieve database password"))
     }
 
     /// Deletes a database connection password from the keychain.
     pub fn delete_db_password(&self, connection_id: &str) -> Result<()> {
         if connection_id.is_empty() {
-            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+            return Err(AppError::ValidationError(
+                "Connection ID cannot be empty".to_string(),
+            ));
         }
 
         if let Ok(entry) = self.get_entry(connection_id, DB_PASSWORD_PREFIX) {
@@ -373,7 +408,7 @@ mod tests {
 
     // Note: These tests require a working system keychain.
     // They use a unique service name to avoid conflicts with real credentials.
-    
+
     fn test_store() -> CredentialStore {
         CredentialStore::with_service_name("devops-commander-test")
     }
@@ -386,7 +421,7 @@ mod tests {
     fn test_store_and_retrieve_password() {
         let store = test_store();
         let server_id = "test-server-password-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -396,7 +431,11 @@ mod tests {
 
         // Retrieve password
         let retrieved = store.retrieve_password(server_id);
-        assert!(retrieved.is_ok(), "Failed to retrieve password: {:?}", retrieved);
+        assert!(
+            retrieved.is_ok(),
+            "Failed to retrieve password: {:?}",
+            retrieved
+        );
         assert_eq!(retrieved.unwrap(), "test-password-123");
 
         // Cleanup
@@ -407,7 +446,7 @@ mod tests {
     fn test_store_and_retrieve_key_path() {
         let store = test_store();
         let server_id = "test-server-keypath-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -417,7 +456,11 @@ mod tests {
 
         // Retrieve key path
         let retrieved = store.retrieve_key_path(server_id);
-        assert!(retrieved.is_ok(), "Failed to retrieve key path: {:?}", retrieved);
+        assert!(
+            retrieved.is_ok(),
+            "Failed to retrieve key path: {:?}",
+            retrieved
+        );
         assert_eq!(retrieved.unwrap(), "/home/user/.ssh/id_rsa");
 
         // Cleanup
@@ -428,7 +471,7 @@ mod tests {
     fn test_delete_credential() {
         let store = test_store();
         let server_id = "test-server-delete-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -453,7 +496,7 @@ mod tests {
     fn test_has_credential() {
         let store = test_store();
         let server_id = "test-server-has-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -486,7 +529,7 @@ mod tests {
 
         // Empty password should fail
         assert!(store.store_password("server-id", "").is_err());
-        
+
         // Empty key path should fail
         assert!(store.store_key_path("server-id", "").is_err());
     }
@@ -495,14 +538,14 @@ mod tests {
     fn test_retrieve_nonexistent_credential() {
         let store = test_store();
         let server_id = "nonexistent-server-12345";
-        
+
         // Cleanup to ensure it doesn't exist
         cleanup_test_credential(&store, server_id);
 
         // Should return error for nonexistent credential
         let result = store.retrieve_password(server_id);
         assert!(result.is_err());
-        
+
         let result = store.retrieve_key_path(server_id);
         assert!(result.is_err());
     }
@@ -510,7 +553,7 @@ mod tests {
     #[test]
     fn test_check_availability() {
         let store = test_store();
-        
+
         // This should succeed if keychain is available
         let result = store.check_availability();
         // We don't assert success because it depends on the system,
@@ -522,13 +565,16 @@ mod tests {
     fn test_overwrite_credential() {
         let store = test_store();
         let server_id = "test-server-overwrite-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
         // Store initial password
         store.store_password(server_id, "initial-password").unwrap();
-        assert_eq!(store.retrieve_password(server_id).unwrap(), "initial-password");
+        assert_eq!(
+            store.retrieve_password(server_id).unwrap(),
+            "initial-password"
+        );
 
         // Overwrite with new password
         store.store_password(server_id, "new-password").unwrap();
@@ -542,7 +588,7 @@ mod tests {
     fn test_store_and_retrieve_key_passphrase() {
         let store = test_store();
         let server_id = "test-server-passphrase-1";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -552,7 +598,11 @@ mod tests {
 
         // Retrieve passphrase
         let retrieved = store.retrieve_key_passphrase(server_id);
-        assert!(retrieved.is_ok(), "Failed to retrieve passphrase: {:?}", retrieved);
+        assert!(
+            retrieved.is_ok(),
+            "Failed to retrieve passphrase: {:?}",
+            retrieved
+        );
         assert_eq!(retrieved.unwrap(), Some("my-secret-passphrase".to_string()));
 
         // Cleanup
@@ -563,7 +613,7 @@ mod tests {
     fn test_retrieve_nonexistent_passphrase_returns_none() {
         let store = test_store();
         let server_id = "test-server-no-passphrase";
-        
+
         // Cleanup to ensure it doesn't exist
         cleanup_test_credential(&store, server_id);
 
@@ -577,7 +627,7 @@ mod tests {
     fn test_empty_passphrase_returns_none() {
         let store = test_store();
         let server_id = "test-server-empty-passphrase";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
@@ -598,13 +648,18 @@ mod tests {
     fn test_delete_key_passphrase() {
         let store = test_store();
         let server_id = "test-server-delete-passphrase";
-        
+
         // Cleanup any existing test data
         cleanup_test_credential(&store, server_id);
 
         // Store passphrase
-        store.store_key_passphrase(server_id, "passphrase123").unwrap();
-        assert_eq!(store.retrieve_key_passphrase(server_id).unwrap(), Some("passphrase123".to_string()));
+        store
+            .store_key_passphrase(server_id, "passphrase123")
+            .unwrap();
+        assert_eq!(
+            store.retrieve_key_passphrase(server_id).unwrap(),
+            Some("passphrase123".to_string())
+        );
 
         // Delete passphrase
         let result = store.delete_key_passphrase(server_id);
