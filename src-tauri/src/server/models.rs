@@ -9,8 +9,12 @@ pub struct Server {
     pub port: u16,
     pub username: String,
     pub auth_method: AuthMethod,
+    /// ID of the SSH key from ssh_keys table (when auth_method is SshKey)
+    pub ssh_key_id: Option<String>,
     pub tags: Vec<String>,
     pub environment: Environment,
+    #[serde(default)]
+    pub use_sudo: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_connected: Option<DateTime<Utc>>,
@@ -82,9 +86,13 @@ pub struct CreateServerInput {
     pub port: u16,
     pub username: String,
     pub auth_method: AuthMethod,
+    /// ID of the SSH key to use (when auth_method is SshKey)
+    pub ssh_key_id: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub environment: Environment,
+    #[serde(default)]
+    pub use_sudo: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -94,6 +102,9 @@ pub struct UpdateServerInput {
     pub port: Option<u16>,
     pub username: Option<String>,
     pub auth_method: Option<AuthMethod>,
+    /// ID of the SSH key to use (when auth_method is SshKey)
+    pub ssh_key_id: Option<String>,
     pub tags: Option<Vec<String>>,
     pub environment: Option<Environment>,
+    pub use_sudo: Option<bool>,
 }

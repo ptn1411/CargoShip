@@ -5,6 +5,8 @@ const SERVICE_NAME: &str = "devops-commander";
 const PASSWORD_PREFIX: &str = "password";
 const KEY_PATH_PREFIX: &str = "keypath";
 const KEY_PASSPHRASE_PREFIX: &str = "keypassphrase";
+const DB_PASSWORD_PREFIX: &str = "dbpassword";
+const DB_ENCRYPTION_KEY: &str = "db-encryption-key";
 
 /// CredentialStore manages secure credential storage using the system keychain.
 /// 
@@ -270,6 +272,92 @@ impl CredentialStore {
             return false;
         }
         self.retrieve_key_path(server_id).is_ok()
+    }
+
+    // ==================== Database Encryption Key ====================
+
+    /// Gets or creates the database encryption key.
+    /// The key is stored in the system keychain and can be used for encrypting sensitive data.
+    /// If no key exists, a new random 32-byte key is generated and stored.
+    pub fn get_or_create_db_encryption_key(&self) -> Result<String> {
+        let entry = Entry::new(&self.service_name, DB_ENCRYPTION_KEY)
+            .map_err(|e| self.map_keyring_error(e, "access keychain"))?;
+
+        // Try to get existing key
+        match entry.get_password() {
+            Ok(key) => Ok(key),
+            Err(keyring::Error::NoEntry) => {
+                // Generate new random key (64 hex chars = 32 bytes)
+                use rand::Rng;
+                let key_bytes: [u8; 32] = rand::thread_rng().gen();
+                let key_hex = hex::encode(key_bytes);
+                
+                // Store the new key
+                entry.set_password(&key_hex)
+                    .map_err(|e| self.map_keyring_error(e, "store encryption key"))?;
+                
+                Ok(key_hex)
+            }
+            Err(e) => Err(self.map_keyring_error(e, "retrieve encryption key")),
+        }
+    }
+
+    /// Checks if database encryption key exists.
+    pub fn has_db_encryption_key(&self) -> bool {
+        if let Ok(entry) = Entry::new(&self.service_name, DB_ENCRYPTION_KEY) {
+            entry.get_password().is_ok()
+        } else {
+            false
+        }
+    }
+
+    // ==================== Database Connection Passwords ====================
+
+    /// Stores a database connection password in the keychain.
+    /// This keeps sensitive database credentials out of the SQLite file.
+    pub fn store_db_password(&self, connection_id: &str, password: &str) -> Result<()> {
+        if connection_id.is_empty() {
+            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+        }
+
+        let entry = self.get_entry(connection_id, DB_PASSWORD_PREFIX)?;
+        entry.set_password(password)
+            .map_err(|e| self.map_keyring_error(e, "store database password"))
+    }
+
+    /// Retrieves a database connection password from the keychain.
+    pub fn retrieve_db_password(&self, connection_id: &str) -> Result<String> {
+        if connection_id.is_empty() {
+            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+        }
+
+        let entry = self.get_entry(connection_id, DB_PASSWORD_PREFIX)?;
+        entry.get_password()
+            .map_err(|e| self.map_keyring_error(e, "retrieve database password"))
+    }
+
+    /// Deletes a database connection password from the keychain.
+    pub fn delete_db_password(&self, connection_id: &str) -> Result<()> {
+        if connection_id.is_empty() {
+            return Err(AppError::ValidationError("Connection ID cannot be empty".to_string()));
+        }
+
+        if let Ok(entry) = self.get_entry(connection_id, DB_PASSWORD_PREFIX) {
+            if let Err(e) = entry.delete_credential() {
+                if !matches!(e, keyring::Error::NoEntry) {
+                    return Err(self.map_keyring_error(e, "delete database password"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks if a database password exists for the given connection ID.
+    pub fn has_db_password(&self, connection_id: &str) -> bool {
+        if connection_id.is_empty() {
+            return false;
+        }
+        self.retrieve_db_password(connection_id).is_ok()
     }
 }
 

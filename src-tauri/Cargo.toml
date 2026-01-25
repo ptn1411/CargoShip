@@ -1,7 +1,7 @@
 [package]
 name = "devops-commander"
 version = "0.1.0"
-description = "DevOps Commander - VPS Management Tool"
+description = "CargoShip - VPS Management Tool"
 authors = ["you"]
 edition = "2021"
 
@@ -26,12 +26,17 @@ serde_json = "1"
 # SSH
 ssh2 = "0.9"
 ssh-key = { version = "0.6", features = ["ed25519", "rsa", "encryption", "std"] }
+socket2 = "0.5"
+rand = "0.8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+
+# Encryption for sensitive data
+aes-gcm = "0.10"
 
 # Secure credential storage
 # Platform-specific features:
@@ -48,3 +53,19 @@ thiserror = "2"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tempfile = "3"
+
+# Hashing
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+
+# YAML support for deployment scripts
+serde_yaml = "0.9"
+
+# Variable interpolation
+regex = "1"
+whoami = "1"
+
+# Local terminal PTY
+portable-pty = "0.8"
+dirs = "5"

@@ -101,8 +101,8 @@ impl ServerManager {
 
         sqlx::query(
             r#"
-            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO servers (id, name, host, port, username, auth_method, ssh_key_id, tags, environment, use_sudo, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -111,8 +111,10 @@ impl ServerManager {
         .bind(input.port as i32)
         .bind(&input.username)
         .bind(input.auth_method.to_string())
+        .bind(&input.ssh_key_id)
         .bind(&tags_json)
         .bind(input.environment.to_string())
+        .bind(input.use_sudo)
         .bind(now.to_rfc3339())
         .bind(now.to_rfc3339())
         .execute(&self.db)
@@ -125,8 +127,10 @@ impl ServerManager {
             port: input.port,
             username: input.username,
             auth_method: input.auth_method,
+            ssh_key_id: input.ssh_key_id,
             tags: input.tags,
             environment: input.environment,
+            use_sudo: input.use_sudo,
             created_at: now,
             updated_at: now,
             last_connected: None,
@@ -143,8 +147,8 @@ impl ServerManager {
 
         sqlx::query(
             r#"
-            INSERT INTO servers (id, name, host, port, username, auth_method, tags, environment, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO servers (id, name, host, port, username, auth_method, ssh_key_id, tags, environment, use_sudo, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -153,8 +157,10 @@ impl ServerManager {
         .bind(input.port as i32)
         .bind(&input.username)
         .bind(input.auth_method.to_string())
+        .bind(&input.ssh_key_id)
         .bind(&tags_json)
         .bind(input.environment.to_string())
+        .bind(input.use_sudo)
         .bind(now.to_rfc3339())
         .bind(now.to_rfc3339())
         .execute(&self.db)
@@ -167,8 +173,10 @@ impl ServerManager {
             port: input.port,
             username: input.username,
             auth_method: input.auth_method,
+            ssh_key_id: input.ssh_key_id,
             tags: input.tags,
             environment: input.environment,
+            use_sudo: input.use_sudo,
             created_at: now,
             updated_at: now,
             last_connected: None,
@@ -204,9 +212,16 @@ impl ServerManager {
         let host = input.host.clone().unwrap_or(existing.host.clone());
         let port = input.port.unwrap_or(existing.port);
         let username = input.username.clone().unwrap_or(existing.username.clone());
-        let auth_method = input.auth_method.unwrap_or(existing.auth_method);
+        let auth_method = input.auth_method.clone().unwrap_or(existing.auth_method);
+        // Handle ssh_key_id: if provided use it, otherwise keep existing
+        let ssh_key_id = if input.ssh_key_id.is_some() {
+            input.ssh_key_id.clone()
+        } else {
+            existing.ssh_key_id
+        };
         let tags = input.tags.unwrap_or(existing.tags);
         let environment = input.environment.unwrap_or(existing.environment);
+        let use_sudo = input.use_sudo.unwrap_or(existing.use_sudo);
 
         // Validate the updated values
         Self::validate_update_input(input.host.as_deref(), input.port)?;
@@ -239,7 +254,7 @@ impl ServerManager {
         sqlx::query(
             r#"
             UPDATE servers 
-            SET name = ?, host = ?, port = ?, username = ?, auth_method = ?, tags = ?, environment = ?, updated_at = ?
+            SET name = ?, host = ?, port = ?, username = ?, auth_method = ?, ssh_key_id = ?, tags = ?, environment = ?, use_sudo = ?, updated_at = ?
             WHERE id = ?
             "#,
         )
@@ -248,8 +263,10 @@ impl ServerManager {
         .bind(port as i32)
         .bind(&username)
         .bind(auth_method.to_string())
+        .bind(&ssh_key_id)
         .bind(&tags_json)
         .bind(environment.to_string())
+        .bind(use_sudo)
         .bind(now.to_rfc3339())
         .bind(id)
         .execute(&self.db)
@@ -262,8 +279,10 @@ impl ServerManager {
             port,
             username,
             auth_method,
+            ssh_key_id,
             tags,
             environment,
+            use_sudo,
             created_at: existing.created_at,
             updated_at: now,
             last_connected: existing.last_connected,
@@ -306,8 +325,11 @@ struct ServerRow {
     port: i32,
     username: String,
     auth_method: String,
+    ssh_key_id: Option<String>,
     tags: String,
     environment: String,
+    #[sqlx(default)]
+    use_sudo: bool,
     created_at: String,
     updated_at: String,
     last_connected: Option<String>,
@@ -322,8 +344,10 @@ impl ServerRow {
             port: self.port as u16,
             username: self.username,
             auth_method: self.auth_method.parse().unwrap_or(AuthMethod::Password),
+            ssh_key_id: self.ssh_key_id,
             tags: serde_json::from_str(&self.tags).unwrap_or_default(),
             environment: self.environment.parse().unwrap_or(Environment::Dev),
+            use_sudo: self.use_sudo,
             created_at: chrono::DateTime::parse_from_rfc3339(&self.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now()),

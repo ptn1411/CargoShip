@@ -1,10 +1,20 @@
-import { useEffect } from "react";
-import { Sidebar, MainContent, StatusBar } from "./components/layout";
-import { ServerList } from "./components/servers";
+import { useCallback, useEffect, useState } from "react";
+import { Dashboard } from "./components/dashboard";
+import { DatabaseManager } from "./components/database";
+import { DockerManager } from "./components/docker";
+import { EditorModal, FileEditor } from "./components/editor";
 import { FileBrowser } from "./components/files";
+import { GroupList } from "./components/groups";
+import { MainContent, Sidebar, StatusBar } from "./components/layout";
+import { NginxManager } from "./components/nginx";
+import { CommandPalette } from "./components/quick-actions";
+import { ScriptManagement } from "./components/scripts";
+import { ServerList } from "./components/servers";
+import { SnippetList } from "./components/snippets";
+import { SshKeyList } from "./components/ssh-keys";
 import { TerminalContainer } from "./components/terminal";
 import { ToastContainer } from "./components/ui";
-import { useAppStore, setupEventListeners } from "./store";
+import { setupEventListeners, useAppStore } from "./store";
 
 function App() {
   const sidebarItem = useAppStore((state) => state.sidebarItem);
@@ -14,13 +24,35 @@ function App() {
   const serverStatus = useAppStore((state) => state.serverStatus);
   const toasts = useAppStore((state) => state.toasts);
   const removeToast = useAppStore((state) => state.removeToast);
+  const loadEditorSettings = useAppStore((state) => state.loadEditorSettings);
+  const openFiles = useAppStore((state) => state.openFiles);
+
+  // Editor modal state
+  const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
+
+  // Command palette state - Requirements 7.3
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Count online connections
   const connectionCount = Object.values(serverStatus).filter(
     (status) => status === "online"
   ).length;
 
-  // Setup event listeners on mount
+  // Command palette keyboard shortcut (Ctrl+P) - Requirements 7.3
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Command palette: Ctrl+P / Cmd+P
+    if ((e.ctrlKey || e.metaKey) && e.key === "p") {
+      e.preventDefault();
+      setIsCommandPaletteOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  // Setup event listeners and load initial data on mount
   useEffect(() => {
     let cleanup: (() => void) | null = null;
 
@@ -28,17 +60,25 @@ function App() {
       cleanup = cleanupFn;
     });
 
+    // Load editor settings on app start
+    loadEditorSettings();
+
+    // Request notification permission for alerts
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
     return () => {
       if (cleanup) {
         cleanup();
       }
     };
-  }, []);
+  }, [loadEditorSettings]);
 
   // Detect system theme preference
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    
+
     const updateTheme = () => {
       if (theme === "system") {
         document.documentElement.classList.toggle("dark", mediaQuery.matches);
@@ -69,19 +109,59 @@ function App() {
 
   const renderContent = () => {
     switch (sidebarItem) {
+      case "dashboard":
+        return <Dashboard />;
       case "servers":
         return <ServerList />;
+      case "groups":
+        return <GroupList />;
       case "files":
-        return <FileBrowser />;
+        // Show FileBrowser - hide side editor when modal is open
+        return (
+          <div className="h-full flex gap-4 p-6">
+            <div
+              className={
+                openFiles.length > 0 && !isEditorModalOpen
+                  ? "w-1/3 min-w-[300px] max-w-[400px]"
+                  : "w-full"
+              }>
+              <FileBrowser
+                onOpenFileFullscreen={() => setIsEditorModalOpen(true)}
+              />
+            </div>
+            {openFiles.length > 0 && !isEditorModalOpen && (
+              <div className="flex-1 min-w-0">
+                <FileEditor />
+              </div>
+            )}
+          </div>
+        );
       case "terminal":
         return <TerminalContainer />;
+      case "scripts":
+        return <ScriptManagement />;
+      case "snippets":
+        return <SnippetList />;
+      case "ssh-keys":
+        return <SshKeyList />;
+      case "nginx":
+        return <NginxManager />;
+      case "database":
+        return <DatabaseManager />;
+      case "docker":
+        return <DockerManager />;
       default:
-        return <ServerList />;
+        return <Dashboard />;
     }
   };
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-background text-foreground">
+      {/* Skip Link for Keyboard Users - WCAG 2.4.1 */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       <div className="flex-1 flex overflow-hidden">
         <Sidebar activeItem={sidebarItem} onItemSelect={setSidebarItem} />
         <MainContent>{renderContent()}</MainContent>
@@ -91,6 +171,18 @@ function App() {
         activeTerminals={terminalSessions.length}
       />
       <ToastContainer toasts={toasts} onDismiss={removeToast} />
+
+      {/* Editor Modal - Fullscreen */}
+      <EditorModal
+        isOpen={isEditorModalOpen}
+        onClose={() => setIsEditorModalOpen(false)}
+      />
+
+      {/* Command Palette - Requirements 7.3 */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+      />
     </div>
   );
 }

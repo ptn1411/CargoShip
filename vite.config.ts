@@ -29,4 +29,9 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // Monaco Editor optimization
+  optimizeDeps: {
+    include: ["monaco-editor"],
+  },
 }));

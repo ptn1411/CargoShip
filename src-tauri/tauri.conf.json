@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DevOps Commander",
+  "productName": "CargoShip",
   "version": "0.1.0",
   "identifier": "com.devops-commander.app",
   "build": {
@@ -12,13 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "DevOps Commander",
+        "title": "CargoShip",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
         "minHeight": 800,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {

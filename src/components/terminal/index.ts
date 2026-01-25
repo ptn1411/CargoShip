@@ -1,3 +1,10 @@
 export { TerminalContainer } from "./TerminalContainer";
 export { TerminalTab } from "./TerminalTab";
 export { TerminalView } from "./TerminalView";
+export { LocalTerminalView } from "./LocalTerminalView";
+export { TerminalSnapLayout } from "./TerminalSnapLayout";
+export { TerminalSearch } from "./TerminalSearch";
+export { MultiplexerSessionDialog } from "./MultiplexerSessionDialog";
+export { TerminalSettings, getTerminalThemeColors, DEFAULT_TERMINAL_SETTINGS } from "./TerminalSettings";
+export type { SearchOptions } from "./TerminalSearch";
+export type { TerminalSettingsData, TerminalTheme } from "./TerminalSettings";

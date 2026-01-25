@@ -5,6 +5,9 @@ pub enum AppError {
     #[error("Server not found: {0}")]
     ServerNotFound(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
 
@@ -26,6 +29,9 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 
+    #[error("SSH error: {0}")]
+    SshError(String),
+
     #[error("Duplicate server warning: A server with host '{0}', port {1}, and username '{2}' already exists")]
     DuplicateServerWarning(String, u16, String),
 
@@ -34,6 +40,9 @@ pub enum AppError {
 
     #[error("Connection pool exhausted: maximum {0} connections allowed")]
     ConnectionPoolExhausted(usize),
+
+    #[error("SUDO_PASSWORD_REQUIRED")]
+    SudoPasswordRequired,
 }
 
 impl From<sqlx::Error> for AppError {
