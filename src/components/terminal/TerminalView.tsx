@@ -253,8 +253,6 @@ export function TerminalView({
       if (!terminalRef.current) return;
 
       const terminal = terminalRef.current;
-      const buffer = terminal.buffer.active;
-      const cursorX = buffer.cursorX;
 
       // Calculate how many backspaces we need
       const inputLength = currentInputRef.current.length;
