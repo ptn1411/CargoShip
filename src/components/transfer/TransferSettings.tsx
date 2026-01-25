@@ -1,15 +1,8 @@
-import { useState } from "react";
-import {
-  X,
-  Settings,
-  Gauge,
-  Infinity,
-  Save,
-  RotateCcw,
-} from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Slider from "@radix-ui/react-slider";
 import * as Switch from "@radix-ui/react-switch";
+import { Gauge, Infinity, RotateCcw, Save, Settings, X } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
 
@@ -39,8 +32,13 @@ const MAX_SPEED = 10 * 1024 * 1024;
  * TransferSettings component - Configure transfer speed limits
  * Requirements: 3.8
  */
-export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) {
-  const setTransferSpeedLimit = useAppStore((state) => state.setTransferSpeedLimit);
+export function TransferSettings({
+  open,
+  onOpenChange,
+}: TransferSettingsProps) {
+  const setTransferSpeedLimit = useAppStore(
+    (state) => state.setTransferSpeedLimit,
+  );
   const showError = useAppStore((state) => state.showError);
   const showSuccess = useAppStore((state) => state.showSuccess);
 
@@ -64,13 +62,15 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
       await setTransferSpeedLimit(limit);
       showSuccess(
         "Settings saved",
-        isLimited ? `Speed limit set to ${formatSpeed(speedLimit)}` : "Speed limit disabled"
+        isLimited
+          ? `Speed limit set to ${formatSpeed(speedLimit)}`
+          : "Speed limit disabled",
       );
       onOpenChange(false);
     } catch (error) {
       showError(
         "Failed to save settings",
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     } finally {
       setIsSaving(false);
@@ -102,7 +102,7 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background border border-border rounded-lg shadow-lg z-50">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background text-foreground border border-border rounded-lg shadow-lg z-50">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-3">
@@ -143,13 +143,12 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
                 onCheckedChange={setIsLimited}
                 className={cn(
                   "w-11 h-6 rounded-full relative transition-colors",
-                  isLimited ? "bg-primary" : "bg-secondary"
-                )}
-              >
+                  isLimited ? "bg-primary" : "bg-secondary",
+                )}>
                 <Switch.Thumb
                   className={cn(
                     "block w-5 h-5 bg-white rounded-full shadow transition-transform",
-                    isLimited ? "translate-x-5" : "translate-x-0.5"
+                    isLimited ? "translate-x-5" : "translate-x-0.5",
                   )}
                 />
               </Switch.Root>
@@ -160,8 +159,12 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
               <div className="space-y-4 pl-8">
                 {/* Current Speed Display */}
                 <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                  <span className="text-sm text-muted-foreground">Current limit:</span>
-                  <span className="font-mono font-medium">{formatSpeed(speedLimit)}</span>
+                  <span className="text-sm text-muted-foreground">
+                    Current limit:
+                  </span>
+                  <span className="font-mono font-medium">
+                    {formatSpeed(speedLimit)}
+                  </span>
                 </div>
 
                 {/* Speed Slider */}
@@ -175,8 +178,7 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
                     min={64 * 1024} // 64 KB/s minimum
                     max={MAX_SPEED}
                     step={64 * 1024} // 64 KB steps
-                    className="relative flex items-center w-full h-5 select-none touch-none"
-                  >
+                    className="relative flex items-center w-full h-5 select-none touch-none">
                     <Slider.Track className="relative h-2 grow rounded-full bg-secondary">
                       <Slider.Range className="absolute h-full rounded-full bg-primary" />
                     </Slider.Track>
@@ -197,20 +199,21 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
                     Quick presets
                   </label>
                   <div className="grid grid-cols-4 gap-2">
-                    {SPEED_PRESETS.filter((p) => p.value !== null).map((preset) => (
-                      <button
-                        key={preset.label}
-                        onClick={() => handlePresetSelect(preset.value)}
-                        className={cn(
-                          "px-2 py-1.5 text-xs rounded-md border transition-colors",
-                          speedLimit === preset.value
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border hover:bg-accent"
-                        )}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
+                    {SPEED_PRESETS.filter((p) => p.value !== null).map(
+                      (preset) => (
+                        <button
+                          key={preset.label}
+                          onClick={() => handlePresetSelect(preset.value)}
+                          className={cn(
+                            "px-2 py-1.5 text-xs rounded-md border transition-colors",
+                            speedLimit === preset.value
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border hover:bg-accent",
+                          )}>
+                          {preset.label}
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
               </div>
@@ -231,8 +234,7 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
           <div className="flex items-center justify-between px-6 py-4 border-t border-border">
             <button
               onClick={handleReset}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-accent"
-            >
+              className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-accent">
               <RotateCcw className="w-4 h-4" />
               Reset
             </button>
@@ -245,8 +247,7 @@ export function TransferSettings({ open, onOpenChange }: TransferSettingsProps) 
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-              >
+                className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
                 <Save className="w-4 h-4" />
                 {isSaving ? "Saving..." : "Save"}
               </button>

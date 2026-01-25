@@ -1,18 +1,25 @@
+import { Eye, EyeOff, Key, X } from "lucide-react";
 import { useState } from "react";
-import { X, Key, Eye, EyeOff } from "lucide-react";
-import { cn } from "../../lib/utils";
 import { CreateSshKeyInput, SshKey } from "../../lib/tauri";
+import { cn } from "../../lib/utils";
 
 interface SshKeyFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   sshKey?: SshKey | null;
-  onSubmit: (input: CreateSshKeyInput | { name?: string; comment?: string }) => Promise<void>;
+  onSubmit: (
+    input: CreateSshKeyInput | { name?: string; comment?: string },
+  ) => Promise<void>;
 }
 
-export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormProps) {
+export function SshKeyForm({
+  open,
+  onOpenChange,
+  sshKey,
+  onSubmit,
+}: SshKeyFormProps) {
   const isEditing = !!sshKey;
-  
+
   const [name, setName] = useState(sshKey?.name || "");
   const [keyType, setKeyType] = useState<"ed25519" | "rsa">("ed25519");
   const [passphrase, setPassphrase] = useState("");
@@ -77,8 +84,11 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={() => onOpenChange(false)} />
-      <div className="relative bg-background border border-border rounded-lg shadow-lg w-full max-w-md mx-4 max-h-[90vh] overflow-auto">
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={() => onOpenChange(false)}
+      />
+      <div className="relative bg-background text-foreground border border-border rounded-lg shadow-lg w-full max-w-md mx-4 max-h-[90vh] overflow-auto">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Key className="w-5 h-5 text-primary" />
@@ -88,8 +98,7 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-1 rounded-md hover:bg-accent"
-          >
+            className="p-1 rounded-md hover:bg-accent">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -108,7 +117,7 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g., My Server Key"
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               required
             />
           </div>
@@ -116,7 +125,9 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
           {!isEditing && (
             <>
               <div>
-                <label className="block text-sm font-medium mb-1">Key Type</label>
+                <label className="block text-sm font-medium mb-1">
+                  Key Type
+                </label>
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -125,9 +136,8 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors",
                       keyType === "ed25519"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     Ed25519 (Recommended)
                   </button>
                   <button
@@ -137,9 +147,8 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors",
                       keyType === "rsa"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     RSA
                   </button>
                 </div>
@@ -152,12 +161,13 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
 
               {keyType === "rsa" && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Key Size (bits)</label>
+                  <label className="block text-sm font-medium mb-1">
+                    Key Size (bits)
+                  </label>
                   <select
                     value={bits}
                     onChange={(e) => setBits(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                     <option value={2048}>2048 bits</option>
                     <option value={4096}>4096 bits (Recommended)</option>
                   </select>
@@ -165,34 +175,41 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
               )}
 
               <div>
-                <label className="block text-sm font-medium mb-1">Passphrase (Optional)</label>
+                <label className="block text-sm font-medium mb-1">
+                  Passphrase (Optional)
+                </label>
                 <div className="relative">
                   <input
                     type={showPassphrase ? "text" : "password"}
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
                     placeholder="Leave empty for no passphrase"
-                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassphrase(!showPassphrase)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                    {showPassphrase ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
 
               {passphrase && (
                 <div>
-                  <label className="block text-sm font-medium mb-1">Confirm Passphrase</label>
+                  <label className="block text-sm font-medium mb-1">
+                    Confirm Passphrase
+                  </label>
                   <input
                     type={showPassphrase ? "text" : "password"}
                     value={confirmPassphrase}
                     onChange={(e) => setConfirmPassphrase(e.target.value)}
                     placeholder="Confirm passphrase"
-                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </div>
               )}
@@ -200,13 +217,15 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
           )}
 
           <div>
-            <label className="block text-sm font-medium mb-1">Comment (Optional)</label>
+            <label className="block text-sm font-medium mb-1">
+              Comment (Optional)
+            </label>
             <input
               type="text"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="e.g., user@hostname"
-              className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -214,16 +233,18 @@ export function SshKeyForm({ open, onOpenChange, sshKey, onSubmit }: SshKeyFormP
             <button
               type="button"
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent"
-            >
+              className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent">
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-            >
-              {isSubmitting ? "Processing..." : isEditing ? "Save Changes" : "Generate Key"}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
+              {isSubmitting
+                ? "Processing..."
+                : isEditing
+                  ? "Save Changes"
+                  : "Generate Key"}
             </button>
           </div>
         </form>

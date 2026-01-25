@@ -1171,6 +1171,7 @@ mod tests {
             condition_result: None,
             will_execute: true,
             skip_reason: None,
+            warnings: vec![],
         };
 
         assert!(step.will_execute);
@@ -1188,6 +1189,7 @@ mod tests {
             condition_result: Some(false),
             will_execute: false,
             skip_reason: Some("Condition evaluated to false".to_string()),
+            warnings: vec![],
         };
 
         assert!(!step.will_execute);

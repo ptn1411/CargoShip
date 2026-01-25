@@ -370,6 +370,7 @@ mod tests {
                 port: 22,
                 username: "deploy".to_string(),
                 auth_method: crate::server::AuthMethod::Password,
+                ssh_key_id: None,
                 tags: vec![],
                 environment: crate::server::Environment::Prod,
                 use_sudo: false,
