@@ -35,6 +35,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "startMenuFolder": "CargoShip"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "shortDescription": "VPS Management Tool",
+    "longDescription": "CargoShip - A modern VPS management tool for developers"
   }
 }
