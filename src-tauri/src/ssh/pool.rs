@@ -355,11 +355,14 @@ fn connect_with_timeout(
     }
 }
 
+use crate::ssh::SshKeyManager;
+
 /// Authenticate an SSH session using the provided server credentials
 pub fn authenticate_session(
     session: &Session,
     server: &Server,
     credential_store: &Arc<CredentialStore>,
+    ssh_key_manager: Option<&SshKeyManager>,
 ) -> Result<()> {
     match server.auth_method {
         AuthMethod::Password => {
@@ -372,7 +375,25 @@ pub fn authenticate_session(
         }
         AuthMethod::SshKey => {
             // Check if server has ssh_key_id (key from database)
-            // If so, the key content will be passed via credential_store
+            if let Some(key_id) = &server.ssh_key_id {
+                if let Some(manager) = ssh_key_manager {
+                    let private_key = manager.retrieve_private_key(key_id)?;
+                    let passphrase = credential_store.retrieve_key_passphrase(&server.id)?;
+
+                    authenticate_with_key_content(
+                        session,
+                        &server.username,
+                        &private_key,
+                        passphrase.as_deref(),
+                    )?;
+                    return Ok(());
+                } else {
+                    return Err(AppError::AuthenticationFailed(
+                        "SSH Key Manager not available for database-stored key".to_string(),
+                    ));
+                }
+            }
+
             // Otherwise, use the key_path from credential_store
             let key_path = credential_store.retrieve_key_path(&server.id)?;
             let key_path_obj = std::path::Path::new(&key_path);

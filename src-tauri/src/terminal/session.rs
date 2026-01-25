@@ -1,7 +1,7 @@
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use crate::ssh::{authenticate_session, create_ssh_session};
+use crate::ssh::{authenticate_session, create_ssh_session, SshKeyManager};
 use ssh2::Channel;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -36,13 +36,19 @@ impl TerminalSession {
     pub fn create(
         server: &Server,
         credential_store: &Arc<CredentialStore>,
+        ssh_key_manager: Option<&Arc<SshKeyManager>>,
         cols: u16,
         rows: u16,
     ) -> Result<Self> {
         // Use optimized connection with faster timeouts
         let (session, tcp) = create_ssh_session(&server.host, server.port)?;
 
-        authenticate_session(&session, server, credential_store)?;
+        authenticate_session(
+            &session,
+            server,
+            credential_store,
+            ssh_key_manager.map(|m| m.as_ref()),
+        )?;
 
         let mut channel = session
             .channel_session()

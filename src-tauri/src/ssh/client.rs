@@ -18,20 +18,25 @@ const MAX_RETRY_ATTEMPTS: u32 = 3;
 /// OPTIMIZED: Reduced base delay from 1000ms to 300ms
 const BASE_RETRY_DELAY_MS: u64 = 300;
 
+use crate::ssh::SshKeyManager;
+
 /// SSH client for managing connections and executing commands on remote servers
 pub struct SshClient {
     connection_pool: Arc<ConnectionPool>,
     credential_store: Arc<CredentialStore>,
+    ssh_key_manager: Arc<SshKeyManager>,
 }
 
 impl SshClient {
     pub fn new(
         connection_pool: Arc<ConnectionPool>,
         credential_store: Arc<CredentialStore>,
+        ssh_key_manager: Arc<SshKeyManager>,
     ) -> Self {
         Self {
             connection_pool,
             credential_store,
+            ssh_key_manager,
         }
     }
 
@@ -57,7 +62,12 @@ impl SshClient {
         };
 
         // Authenticate
-        if let Err(e) = authenticate_session(&session, server, &self.credential_store) {
+        if let Err(e) = authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            Some(&self.ssh_key_manager),
+        ) {
             return Ok(ConnectionStatus {
                 connected: false,
                 server_info: None,
@@ -130,7 +140,12 @@ impl SshClient {
 
         // Create new connection
         let (session, tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            Some(&self.ssh_key_manager),
+        )?;
 
         let info = self.get_server_info_internal(&session)?;
 
@@ -210,7 +225,12 @@ impl SshClient {
         let timeout = Duration::from_secs(timeout_secs.unwrap_or(DEFAULT_COMMAND_TIMEOUT_SECS));
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            Some(&self.ssh_key_manager),
+        )?;
 
         let mut channel = session
             .channel_session()
