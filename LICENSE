@@ -1,23 +1,64 @@
-THỎA THUẬN CẤP PHÉP NGƯỜI DÙNG CUỐI (EULA)
+# THỎA THUẬN CẤP PHÉP NGƯỜI DÙNG CUỐI (EULA)
 
-Bản quyền (c) 2026 [Phạm Thành Nam]
+Bản quyền © 2026 Phạm Thành Nam. Bảo lưu mọi quyền.
 
-1. QUYỀN SỬ DỤNG PHI THƯƠNG MẠI
-   Bạn được phép tải về, cài đặt và sử dụng phần mềm này miễn phí cho mục đích cá nhân hoặc nội bộ doanh nghiệp mà không cần trả phí, với điều kiện giữ nguyên hiện trạng của phần mềm.
+## 1. PHẠM VI CẤP PHÉP
 
-2. QUYỀN TRUY CẬP VÀ SỬ DỤNG MÃ NGUỒN
-   Mã nguồn của phần mềm này được cung cấp công khai nhằm mục đích tham khảo và học tập.
-   
-   a. Sửa đổi để sử dụng:
-      Nếu bạn muốn sửa đổi mã nguồn để phục vụ nhu cầu sử dụng riêng (cá nhân hoặc nội bộ), bạn BẮT BUỘC phải xin phép tác giả bằng văn bản (hoặc email) trước khi thực hiện. Việc tự ý sửa đổi và sử dụng mà không có sự đồng ý của tác giả là vi phạm thỏa thuận này.
+Phần mềm này được cấp phép, không được bán.
 
-   b. Sửa đổi để phân phối hoặc thương mại hóa:
-      Mọi hành vi sửa đổi mã nguồn để bán lại, phân phối lại, hoặc tích hợp vào sản phẩm thương mại để bán đều BẮT BUỘC phải trả phí bản quyền cho tác giả. Bạn phải liên hệ với tác giả để thỏa thuận mức phí và ký kết Hợp đồng Cấp phép Thương mại (Commercial License) trước khi thực hiện.
+Tác giả cho phép bạn tải về, cài đặt và sử dụng phần mềm **miễn phí** cho các mục đích sau:
+- Sử dụng cá nhân
+- Sử dụng nội bộ trong tổ chức/doanh nghiệp (không nhằm mục đích thương mại hóa phần mềm)
 
-3. TỪ CHỐI BẢO HÀNH
-   Phần mềm được cung cấp "nguyên trạng". Tác giả không chịu trách nhiệm về bất kỳ thiệt hại nào phát sinh trong quá trình sử dụng.
+Với điều kiện:
+- Không thay đổi mã nguồn
+- Không phân phối lại phần mềm hoặc mã nguồn dưới bất kỳ hình thức nào
+
+## 2. MÃ NGUỒN
+
+Mã nguồn được công bố công khai **chỉ nhằm mục đích tham khảo và học tập**.
+
+### 2.1. Sửa đổi để sử dụng nội bộ
+
+Mọi hành vi sửa đổi mã nguồn, dù chỉ để sử dụng cá nhân hoặc nội bộ, **phải có sự chấp thuận trước bằng văn bản (hoặc email) từ tác giả**.
+
+Việc sửa đổi và sử dụng khi chưa được cho phép được xem là vi phạm thỏa thuận cấp phép này.
+
+### 2.2. Sửa đổi, phân phối hoặc thương mại hóa
+
+Bạn **không được phép**:
+- Bán lại
+- Phân phối lại
+- Cấp phép lại
+- Tích hợp vào sản phẩm/dịch vụ thương mại
+
+nếu chưa ký **Hợp đồng Cấp phép Thương mại (Commercial License)** với tác giả và hoàn tất nghĩa vụ phí bản quyền.
+
+## 3. QUYỀN SỞ HỮU TRÍ TUỆ
+
+Mọi quyền sở hữu trí tuệ đối với phần mềm, bao gồm nhưng không giới hạn ở mã nguồn, thiết kế, ý tưởng và tài liệu, đều thuộc về tác giả.
+
+## 4. TỪ CHỐI BẢO HÀNH
+
+Phần mềm được cung cấp "NGUYÊN TRẠNG" (AS IS).
+
+Tác giả không bảo đảm rằng phần mềm:
+- Không có lỗi
+- Phù hợp với một mục đích cụ thể
+
+Trong mọi trường hợp, tác giả **không chịu trách nhiệm** đối với bất kỳ thiệt hại trực tiếp hoặc gián tiếp nào phát sinh từ việc sử dụng phần mềm.
+
+## 5. CHẤM DỨT
+
+Thỏa thuận này sẽ tự động chấm dứt nếu bạn vi phạm bất kỳ điều khoản nào.  
+Khi chấm dứt, bạn phải ngừng sử dụng và xóa toàn bộ bản sao của phần mềm.
+
+## 6. LUẬT ÁP DỤNG
+
+Thỏa thuận này được điều chỉnh và giải thích theo pháp luật Việt Nam.
 
 ---
-Thông tin liên hệ tác giả:
-Phạm Thành Nam
+
+## Thông tin tác giả
+**Phạm Thành Nam**  
 Email: ptndev18@gmail.com

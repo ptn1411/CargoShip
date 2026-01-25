@@ -7,30 +7,35 @@ CargoShip là ứng dụng desktop quản lý VPS/Server mạnh mẽ, được x
 ## Tính năng chính
 
 ### 🖥️ Quản lý Server
+
 - Thêm, sửa, xóa thông tin server (SSH)
 - Nhóm server theo project/môi trường
 - Theo dõi trạng thái kết nối real-time
 - Lưu trữ credentials an toàn với OS Keychain
 
 ### 📁 File Browser
+
 - Duyệt file/folder trên remote server qua SFTP
 - Upload/Download file với progress bar
 - Tạo, xóa, rename, chmod file/folder
 - Hỗ trợ drag & drop
 
 ### ✏️ Code Editor
+
 - Editor tích hợp Monaco (VS Code engine)
 - Syntax highlighting cho nhiều ngôn ngữ
 - Chỉnh sửa file trực tiếp trên server
 - Diff viewer so sánh thay đổi
 
 ### 💻 Terminal
+
 - SSH Terminal với xterm.js
 - Hỗ trợ nhiều tab terminal
 - Local terminal (PowerShell/Bash)
 - Tìm kiếm trong terminal output
 
 ### 📜 Script Management
+
 - Tạo và quản lý deployment scripts
 - Template scripts có sẵn
 - Biến động (variables) cho scripts
@@ -38,24 +43,28 @@ CargoShip là ứng dụng desktop quản lý VPS/Server mạnh mẽ, được x
 - Lịch sử deployment với rollback
 
 ### 🔧 Nginx Manager
+
 - Quản lý virtual hosts
 - Tạo config từ template
 - SSL/Let's Encrypt integration
 - Kiểm tra syntax và reload nginx
 
 ### 🗄️ Database Manager
+
 - Kết nối MySQL/PostgreSQL qua SSH tunnel
 - Query editor với syntax highlighting
 - Xem và quản lý tables
 - Export kết quả query
 
 ### 📊 Dashboard
+
 - Tổng quan tất cả servers
 - Metrics: CPU, RAM, Disk usage
 - Alert khi resource cao
 - Quick actions
 
 ### ⚡ Các tính năng khác
+
 - Command Palette (Ctrl+P)
 - Code Snippets library
 - SSH Key management
@@ -65,6 +74,7 @@ CargoShip là ứng dụng desktop quản lý VPS/Server mạnh mẽ, được x
 ## Cài đặt
 
 ### Yêu cầu
+
 - Node.js 18+
 - Rust 1.70+
 - Tauri CLI
@@ -122,6 +132,7 @@ CargoShip/
 ## Tech Stack
 
 **Frontend:**
+
 - React 19
 - TypeScript
 - Tailwind CSS
@@ -130,6 +141,7 @@ CargoShip/
 - xterm.js
 
 **Backend:**
+
 - Tauri 2
 - Rust
 - ssh2 (SSH/SFTP)
@@ -138,4 +150,17 @@ CargoShip/
 
 ## License
 
-MIT
+**THỎA THUẬN CẤP PHÉP NGƯỜI DÙNG CUỐI (EULA)**
+
+Phần mềm này được cấp phép theo các điều khoản sau:
+
+1. **Sử dụng miễn phí**: Được phép sử dụng miễn phí cho mục đích cá nhân hoặc nội bộ doanh nghiệp với nguyên trạng phần mềm.
+2. **Mã nguồn**:
+   - Được cung cấp để tham khảo và học tập.
+   - **Sửa đổi để sử dụng riêng**: Cần xin phép tác giả bằng văn bản/email.
+   - **Thương mại hóa (Sửa đổi để bán/phân phối)**: BẮT BUỘC phải trả phí bản quyền và ký kết hợp đồng thương mại.
+3. **Từ chối bảo hành**: Phần mềm cung cấp "nguyên trạng", không chịu trách nhiệm thiệt hại.
+
+Xem chi tiết tại file [LICENSE](./LICENSE).
+
+Thông tin liên hệ tác giả: Phạm Thành Nam (ptndev18@gmail.com)
