@@ -1,7 +1,11 @@
-import { useState, useEffect } from "react";
-import { X, Loader2, Terminal, Plus, Tag } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Snippet, CreateSnippetInput, UpdateSnippetInput } from "../../lib/tauri";
+import { Loader2, Plus, Tag, Terminal, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  CreateSnippetInput,
+  Snippet,
+  UpdateSnippetInput,
+} from "../../lib/tauri";
 
 interface SnippetEditorProps {
   open: boolean;
@@ -130,7 +134,7 @@ export function SnippetEditor({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-background border border-border rounded-lg shadow-lg z-50 p-6 max-h-[85vh] overflow-hidden flex flex-col">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-background text-foreground border border-border rounded-lg shadow-lg z-50 p-6 max-h-[85vh] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <Dialog.Title className="text-lg font-semibold flex items-center gap-2">
               <Terminal className="w-5 h-5" />
@@ -143,7 +147,9 @@ export function SnippetEditor({
             </Dialog.Close>
           </div>
 
-          <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+          <form
+            onSubmit={handleSubmit}
+            className="flex flex-col flex-1 overflow-hidden">
             <div className="space-y-4 overflow-auto flex-1 pr-1">
               {/* Name */}
               <div>
@@ -154,18 +160,20 @@ export function SnippetEditor({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="e.g., Check disk usage"
                 />
               </div>
 
               {/* Description */}
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label className="block text-sm font-medium mb-1">
+                  Description
+                </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                   placeholder="Optional description for this snippet"
                   rows={2}
                 />
@@ -179,7 +187,7 @@ export function SnippetEditor({
                 <textarea
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                   placeholder="e.g., df -h | grep -E '^/dev'"
                   rows={3}
                 />
@@ -198,8 +206,7 @@ export function SnippetEditor({
                     <select
                       value={category}
                       onChange={(e) => setCategory(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    >
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                       {categories.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
@@ -209,8 +216,7 @@ export function SnippetEditor({
                     <button
                       type="button"
                       onClick={() => setIsNewCategory(true)}
-                      className="text-sm text-primary hover:underline flex items-center gap-1"
-                    >
+                      className="text-sm text-primary hover:underline flex items-center gap-1">
                       <Plus className="w-3 h-3" />
                       Create new category
                     </button>
@@ -221,7 +227,7 @@ export function SnippetEditor({
                       type="text"
                       value={newCategory}
                       onChange={(e) => setNewCategory(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="e.g., System, Network, Database"
                     />
                     {categories.length > 0 && (
@@ -231,8 +237,7 @@ export function SnippetEditor({
                           setIsNewCategory(false);
                           setNewCategory("");
                         }}
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                      >
+                        className="text-sm text-muted-foreground hover:text-foreground">
                         Use existing category
                       </button>
                     )}
@@ -249,15 +254,14 @@ export function SnippetEditor({
                     value={tagInput}
                     onChange={(e) => setTagInput(e.target.value)}
                     onKeyDown={handleTagKeyDown}
-                    className="flex-1 px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="flex-1 px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="Add tag and press Enter"
                   />
                   <button
                     type="button"
                     onClick={handleAddTag}
                     disabled={!tagInput.trim()}
-                    className="px-3 py-2 rounded-md border border-input hover:bg-accent disabled:opacity-50"
-                  >
+                    className="px-3 py-2 rounded-md border border-input hover:bg-accent disabled:opacity-50">
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
@@ -267,14 +271,12 @@ export function SnippetEditor({
                     {tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary"
-                      >
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary">
                         {tag}
                         <button
                           type="button"
                           onClick={() => handleRemoveTag(tag)}
-                          className="hover:text-destructive"
-                        >
+                          className="hover:text-destructive">
                           <X className="w-3 h-3" />
                         </button>
                       </span>
@@ -296,16 +298,14 @@ export function SnippetEditor({
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent"
-                >
+                  className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent">
                   Cancel
                 </button>
               </Dialog.Close>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
-              >
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isEditing ? "Save Changes" : "Create Snippet"}
               </button>

@@ -1,15 +1,26 @@
-import { useState, useEffect } from "react";
-import { X, Eye, EyeOff, Loader2, FolderOpen, Key } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { Eye, EyeOff, FolderOpen, Key, Loader2, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  CreateServerInput,
+  Server,
+  SshKey,
+  UpdateServerInput,
+  serverApi,
+  sshKeyApi,
+} from "../../lib/tauri";
 import { cn } from "../../lib/utils";
-import { Server, CreateServerInput, UpdateServerInput, serverApi, sshKeyApi, SshKey } from "../../lib/tauri";
 
 interface ServerFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   server?: Server | null;
-  onSubmit: (input: CreateServerInput | UpdateServerInput, credential?: string, keyPassphrase?: string) => Promise<void>;
+  onSubmit: (
+    input: CreateServerInput | UpdateServerInput,
+    credential?: string,
+    keyPassphrase?: string,
+  ) => Promise<void>;
 }
 
 const environments = [
@@ -25,14 +36,21 @@ const authMethods = [
 
 type KeySource = "file" | "database";
 
-export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormProps) {
+export function ServerForm({
+  open,
+  onOpenChange,
+  server,
+  onSubmit,
+}: ServerFormProps) {
   const isEditing = !!server;
-  
+
   const [name, setName] = useState("");
   const [host, setHost] = useState("");
   const [port, setPort] = useState("22");
   const [username, setUsername] = useState("");
-  const [authMethod, setAuthMethod] = useState<"password" | "ssh_key">("password");
+  const [authMethod, setAuthMethod] = useState<"password" | "ssh_key">(
+    "password",
+  );
   const [keySource, setKeySource] = useState<KeySource>("file");
   const [credential, setCredential] = useState("");
   const [sshKeyId, setSshKeyId] = useState<string>("");
@@ -40,10 +58,12 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
   const [keyPassphrase, setKeyPassphrase] = useState("");
   const [showCredential, setShowCredential] = useState(false);
   const [showPassphrase, setShowPassphrase] = useState(false);
-  const [environment, setEnvironment] = useState<"dev" | "staging" | "prod">("dev");
+  const [environment, setEnvironment] = useState<"dev" | "staging" | "prod">(
+    "dev",
+  );
   const [tags, setTags] = useState("");
   const [useSudo, setUseSudo] = useState(false);
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
@@ -103,16 +123,18 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
         setDuplicateWarning(null);
         return;
       }
-      
+
       try {
         const isDuplicate = await serverApi.checkDuplicate(
           host,
           parseInt(port, 10),
           username,
-          server?.id
+          server?.id,
         );
         if (isDuplicate) {
-          setDuplicateWarning("A server with this host, port, and username already exists.");
+          setDuplicateWarning(
+            "A server with this host, port, and username already exists.",
+          );
         } else {
           setDuplicateWarning(null);
         }
@@ -132,7 +154,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
 
     try {
       const portNum = parseInt(port, 10);
-      
+
       // Validation
       if (!name.trim()) {
         throw new Error("Name is required");
@@ -172,15 +194,20 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           port: portNum,
           username: username.trim(),
           auth_method: authMethod,
-          ssh_key_id: authMethod === "ssh_key" && keySource === "database" ? sshKeyId : undefined,
+          ssh_key_id:
+            authMethod === "ssh_key" && keySource === "database"
+              ? sshKeyId
+              : undefined,
           environment,
           tags: parsedTags,
           use_sudo: useSudo,
         };
         // Only pass credential if using file-based key or password
-        const credToPass = (authMethod === "password" || (authMethod === "ssh_key" && keySource === "file")) 
-          ? credential.trim() || undefined 
-          : undefined;
+        const credToPass =
+          authMethod === "password" ||
+          (authMethod === "ssh_key" && keySource === "file")
+            ? credential.trim() || undefined
+            : undefined;
         await onSubmit(input, credToPass, keyPassphrase || undefined);
       } else {
         const input: CreateServerInput = {
@@ -189,15 +216,20 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
           port: portNum,
           username: username.trim(),
           auth_method: authMethod,
-          ssh_key_id: authMethod === "ssh_key" && keySource === "database" ? sshKeyId : undefined,
+          ssh_key_id:
+            authMethod === "ssh_key" && keySource === "database"
+              ? sshKeyId
+              : undefined,
           environment,
           tags: parsedTags,
           use_sudo: useSudo,
         };
         // Only pass credential if using file-based key or password
-        const credToPass = (authMethod === "password" || (authMethod === "ssh_key" && keySource === "file")) 
-          ? credential.trim() 
-          : undefined;
+        const credToPass =
+          authMethod === "password" ||
+          (authMethod === "ssh_key" && keySource === "file")
+            ? credential.trim()
+            : undefined;
         await onSubmit(input, credToPass, keyPassphrase || undefined);
       }
 
@@ -213,7 +245,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background border border-border rounded-lg shadow-lg z-50 p-6">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background text-foreground border border-border rounded-lg shadow-lg z-50 p-6">
           <div className="flex items-center justify-between mb-4">
             <Dialog.Title className="text-lg font-semibold">
               {isEditing ? "Edit Server" : "Add Server"}
@@ -233,7 +265,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="My Server"
               />
             </div>
@@ -246,7 +278,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                   type="text"
                   value={host}
                   onChange={(e) => setHost(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder="192.168.1.1 or example.com"
                 />
               </div>
@@ -256,7 +288,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                   type="number"
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   min="1"
                   max="65535"
                 />
@@ -270,14 +302,16 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="root"
               />
             </div>
 
             {/* Auth Method */}
             <div>
-              <label className="block text-sm font-medium mb-1">Authentication</label>
+              <label className="block text-sm font-medium mb-1">
+                Authentication
+              </label>
               <div className="flex gap-2">
                 {authMethods.map((method) => (
                   <button
@@ -288,9 +322,8 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors",
                       authMethod === method.value
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     {method.label}
                   </button>
                 ))}
@@ -301,9 +334,13 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
             <div>
               <label className="block text-sm font-medium mb-1">
                 {authMethod === "password" ? "Password" : "SSH Key"}
-                {isEditing && <span className="text-muted-foreground ml-1">(leave empty to keep current)</span>}
+                {isEditing && (
+                  <span className="text-muted-foreground ml-1">
+                    (leave empty to keep current)
+                  </span>
+                )}
               </label>
-              
+
               {authMethod === "ssh_key" && (
                 <div className="flex gap-2 mb-2">
                   <button
@@ -313,9 +350,8 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors flex items-center justify-center gap-2",
                       keySource === "database"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     <Key className="w-4 h-4" />
                     From Library
                   </button>
@@ -326,9 +362,8 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors flex items-center justify-center gap-2",
                       keySource === "file"
                         ? "border-primary bg-primary/10 text-primary"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     <FolderOpen className="w-4 h-4" />
                     From File
                   </button>
@@ -341,15 +376,18 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                     type={showCredential ? "text" : "password"}
                     value={credential}
                     onChange={(e) => setCredential(e.target.value)}
-                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="••••••••"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCredential(!showCredential)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    {showCredential ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                    {showCredential ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               )}
@@ -358,8 +396,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                 <select
                   value={sshKeyId}
                   onChange={(e) => setSshKeyId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
+                  className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                   <option value="">Select an SSH key...</option>
                   {sshKeys.map((key) => (
                     <option key={key.id} value={key.id}>
@@ -376,7 +413,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                       type="text"
                       value={credential}
                       onChange={(e) => setCredential(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                       placeholder="/home/user/.ssh/id_rsa"
                     />
                   </div>
@@ -388,10 +425,12 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                           multiple: false,
                           directory: false,
                           title: "Select SSH Key",
-                          filters: [{
-                            name: "SSH Keys",
-                            extensions: ["pem", "pub", "key", "*"]
-                          }]
+                          filters: [
+                            {
+                              name: "SSH Keys",
+                              extensions: ["pem", "pub", "key", "*"],
+                            },
+                          ],
                         });
                         if (selected && typeof selected === "string") {
                           setCredential(selected);
@@ -400,20 +439,21 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                         console.error("Failed to open file dialog:", err);
                       }
                     }}
-                    className="px-3 py-2 rounded-md border border-input bg-background text-sm hover:bg-accent flex items-center gap-2"
-                    title="Browse for SSH key file"
-                  >
+                    className="px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm hover:bg-accent flex items-center gap-2"
+                    title="Browse for SSH key file">
                     <FolderOpen className="w-4 h-4" />
                     Browse
                   </button>
                 </div>
               )}
 
-              {authMethod === "ssh_key" && keySource === "database" && sshKeys.length === 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  No SSH keys found. Go to SSH Keys to generate one.
-                </p>
-              )}
+              {authMethod === "ssh_key" &&
+                keySource === "database" &&
+                sshKeys.length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    No SSH keys found. Go to SSH Keys to generate one.
+                  </p>
+                )}
             </div>
 
             {/* SSH Key Passphrase (only shown for SSH key auth with file source) */}
@@ -421,22 +461,27 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Key Passphrase
-                  <span className="text-muted-foreground ml-1">(optional, leave empty if key has no passphrase)</span>
+                  <span className="text-muted-foreground ml-1">
+                    (optional, leave empty if key has no passphrase)
+                  </span>
                 </label>
                 <div className="relative">
                   <input
                     type={showPassphrase ? "text" : "password"}
                     value={keyPassphrase}
                     onChange={(e) => setKeyPassphrase(e.target.value)}
-                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    className="w-full px-3 py-2 pr-10 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                     placeholder="••••••••"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassphrase(!showPassphrase)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassphrase ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground">
+                    {showPassphrase ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -444,7 +489,9 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
 
             {/* Environment */}
             <div>
-              <label className="block text-sm font-medium mb-1">Environment</label>
+              <label className="block text-sm font-medium mb-1">
+                Environment
+              </label>
               <div className="flex gap-2">
                 {environments.map((env) => (
                   <button
@@ -455,9 +502,8 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                       "flex-1 px-3 py-2 rounded-md border text-sm transition-colors",
                       environment === env.value
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input hover:bg-accent"
-                    )}
-                  >
+                        : "border-input hover:bg-accent",
+                    )}>
                     {env.label}
                   </button>
                 ))}
@@ -471,7 +517,7 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                 type="text"
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
-                className="w-full px-3 py-2 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full px-3 py-2 rounded-md border border-input bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder="web, database, api (comma separated)"
               />
             </div>
@@ -485,7 +531,9 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
                   onChange={(e) => setUseSudo(e.target.checked)}
                   className="w-4 h-4 rounded border-border"
                 />
-                <span className="text-sm font-medium">Use sudo for file operations</span>
+                <span className="text-sm font-medium">
+                  Use sudo for file operations
+                </span>
               </label>
               <span className="text-xs text-muted-foreground">
                 (requires passwordless sudo or NOPASSWD)
@@ -511,16 +559,14 @@ export function ServerForm({ open, onOpenChange, server, onSubmit }: ServerFormP
               <Dialog.Close asChild>
                 <button
                   type="button"
-                  className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent"
-                >
+                  className="px-4 py-2 rounded-md border border-input text-sm hover:bg-accent">
                   Cancel
                 </button>
               </Dialog.Close>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
-              >
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2">
                 {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isEditing ? "Save Changes" : "Add Server"}
               </button>

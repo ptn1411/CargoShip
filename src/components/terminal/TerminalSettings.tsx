@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
-import { Settings, Monitor, Type, Palette, RotateCcw } from "lucide-react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Select from "@radix-ui/react-select";
 import * as Slider from "@radix-ui/react-slider";
+import { Monitor, Palette, RotateCcw, Settings, Type } from "lucide-react";
+import { useEffect, useState } from "react";
 import { cn } from "../../lib/utils";
 
 export interface TerminalSettingsData {
@@ -13,7 +13,13 @@ export interface TerminalSettingsData {
   cursorBlink: boolean;
 }
 
-export type TerminalTheme = "dark" | "light" | "monokai" | "dracula" | "solarized-dark" | "solarized-light";
+export type TerminalTheme =
+  | "dark"
+  | "light"
+  | "monokai"
+  | "dracula"
+  | "solarized-dark"
+  | "solarized-light";
 
 interface TerminalSettingsProps {
   open: boolean;
@@ -40,20 +46,41 @@ const FONT_FAMILIES = [
   { value: '"Ubuntu Mono", monospace', label: "Ubuntu Mono" },
 ];
 
-const THEMES: { value: TerminalTheme; label: string; preview: { bg: string; fg: string } }[] = [
+const THEMES: {
+  value: TerminalTheme;
+  label: string;
+  preview: { bg: string; fg: string };
+}[] = [
   { value: "dark", label: "Dark", preview: { bg: "#0a0a0f", fg: "#e4e4e7" } },
   { value: "light", label: "Light", preview: { bg: "#ffffff", fg: "#18181b" } },
-  { value: "monokai", label: "Monokai", preview: { bg: "#272822", fg: "#f8f8f2" } },
-  { value: "dracula", label: "Dracula", preview: { bg: "#282a36", fg: "#f8f8f2" } },
-  { value: "solarized-dark", label: "Solarized Dark", preview: { bg: "#002b36", fg: "#839496" } },
-  { value: "solarized-light", label: "Solarized Light", preview: { bg: "#fdf6e3", fg: "#657b83" } },
+  {
+    value: "monokai",
+    label: "Monokai",
+    preview: { bg: "#272822", fg: "#f8f8f2" },
+  },
+  {
+    value: "dracula",
+    label: "Dracula",
+    preview: { bg: "#282a36", fg: "#f8f8f2" },
+  },
+  {
+    value: "solarized-dark",
+    label: "Solarized Dark",
+    preview: { bg: "#002b36", fg: "#839496" },
+  },
+  {
+    value: "solarized-light",
+    label: "Solarized Light",
+    preview: { bg: "#fdf6e3", fg: "#657b83" },
+  },
 ];
 
-const CURSOR_STYLES: { value: "block" | "underline" | "bar"; label: string }[] = [
-  { value: "block", label: "Block" },
-  { value: "underline", label: "Underline" },
-  { value: "bar", label: "Bar" },
-];
+const CURSOR_STYLES: { value: "block" | "underline" | "bar"; label: string }[] =
+  [
+    { value: "block", label: "Block" },
+    { value: "underline", label: "Underline" },
+    { value: "bar", label: "Bar" },
+  ];
 
 export function TerminalSettings({
   open,
@@ -61,7 +88,8 @@ export function TerminalSettings({
   settings,
   onSettingsChange,
 }: TerminalSettingsProps) {
-  const [localSettings, setLocalSettings] = useState<TerminalSettingsData>(settings);
+  const [localSettings, setLocalSettings] =
+    useState<TerminalSettingsData>(settings);
 
   useEffect(() => {
     setLocalSettings(settings);
@@ -69,7 +97,7 @@ export function TerminalSettings({
 
   const handleChange = <K extends keyof TerminalSettingsData>(
     key: K,
-    value: TerminalSettingsData[K]
+    value: TerminalSettingsData[K],
   ) => {
     const newSettings = { ...localSettings, [key]: value };
     setLocalSettings(newSettings);
@@ -85,7 +113,7 @@ export function TerminalSettings({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background border border-border rounded-lg shadow-lg z-50 p-6">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-background text-foreground border border-border rounded-lg shadow-lg z-50 p-6">
           <Dialog.Title className="text-lg font-semibold flex items-center gap-2">
             <Settings className="w-5 h-5" />
             Terminal Settings
@@ -110,16 +138,14 @@ export function TerminalSettings({
                       "flex flex-col items-center gap-1 p-2 rounded-md border transition-colors",
                       localSettings.theme === theme.value
                         ? "border-primary bg-primary/10"
-                        : "border-border hover:border-primary/50"
-                    )}
-                  >
+                        : "border-border hover:border-primary/50",
+                    )}>
                     <div
                       className="w-full h-8 rounded flex items-center justify-center text-xs"
                       style={{
                         backgroundColor: theme.preview.bg,
                         color: theme.preview.fg,
-                      }}
-                    >
+                      }}>
                       Aa
                     </div>
                     <span className="text-xs">{theme.label}</span>
@@ -135,7 +161,9 @@ export function TerminalSettings({
                   <Type className="w-4 h-4" />
                   Font Size
                 </span>
-                <span className="text-muted-foreground">{localSettings.fontSize}px</span>
+                <span className="text-muted-foreground">
+                  {localSettings.fontSize}px
+                </span>
               </label>
               <Slider.Root
                 className="relative flex items-center select-none touch-none w-full h-5"
@@ -143,8 +171,7 @@ export function TerminalSettings({
                 onValueChange={([value]) => handleChange("fontSize", value)}
                 min={10}
                 max={24}
-                step={1}
-              >
+                step={1}>
                 <Slider.Track className="bg-secondary relative grow rounded-full h-1">
                   <Slider.Range className="absolute bg-primary rounded-full h-full" />
                 </Slider.Track>
@@ -160,9 +187,8 @@ export function TerminalSettings({
               </label>
               <Select.Root
                 value={localSettings.fontFamily}
-                onValueChange={(value) => handleChange("fontFamily", value)}
-              >
-                <Select.Trigger className="w-full flex items-center justify-between px-3 py-2 text-sm border border-border rounded-md bg-background hover:bg-accent">
+                onValueChange={(value) => handleChange("fontFamily", value)}>
+                <Select.Trigger className="w-full flex items-center justify-between px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground hover:bg-accent">
                   <Select.Value />
                   <Select.Icon />
                 </Select.Trigger>
@@ -174,8 +200,7 @@ export function TerminalSettings({
                           key={font.value}
                           value={font.value}
                           className="px-3 py-2 text-sm rounded cursor-pointer outline-none hover:bg-accent"
-                          style={{ fontFamily: font.value }}
-                        >
+                          style={{ fontFamily: font.value }}>
                           <Select.ItemText>{font.label}</Select.ItemText>
                         </Select.Item>
                       ))}
@@ -200,9 +225,8 @@ export function TerminalSettings({
                       "flex-1 px-3 py-2 text-sm rounded-md border transition-colors",
                       localSettings.cursorStyle === style.value
                         ? "border-primary bg-primary/10"
-                        : "border-border hover:border-primary/50"
-                    )}
-                  >
+                        : "border-border hover:border-primary/50",
+                    )}>
                     {style.label}
                   </button>
                 ))}
@@ -213,16 +237,19 @@ export function TerminalSettings({
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">Cursor Blink</label>
               <button
-                onClick={() => handleChange("cursorBlink", !localSettings.cursorBlink)}
+                onClick={() =>
+                  handleChange("cursorBlink", !localSettings.cursorBlink)
+                }
                 className={cn(
                   "w-10 h-6 rounded-full transition-colors relative",
-                  localSettings.cursorBlink ? "bg-primary" : "bg-secondary"
-                )}
-              >
+                  localSettings.cursorBlink ? "bg-primary" : "bg-secondary",
+                )}>
                 <span
                   className={cn(
                     "absolute top-1 w-4 h-4 rounded-full bg-white transition-transform",
-                    localSettings.cursorBlink ? "translate-x-5" : "translate-x-1"
+                    localSettings.cursorBlink
+                      ? "translate-x-5"
+                      : "translate-x-1",
                   )}
                 />
               </button>
@@ -234,12 +261,14 @@ export function TerminalSettings({
               <div
                 className="p-3 rounded-md border border-border"
                 style={{
-                  backgroundColor: THEMES.find((t) => t.value === localSettings.theme)?.preview.bg,
-                  color: THEMES.find((t) => t.value === localSettings.theme)?.preview.fg,
+                  backgroundColor: THEMES.find(
+                    (t) => t.value === localSettings.theme,
+                  )?.preview.bg,
+                  color: THEMES.find((t) => t.value === localSettings.theme)
+                    ?.preview.fg,
                   fontFamily: localSettings.fontFamily,
                   fontSize: `${localSettings.fontSize}px`,
-                }}
-              >
+                }}>
                 <div>$ echo "Hello, World!"</div>
                 <div>Hello, World!</div>
                 <div>$ _</div>
@@ -251,8 +280,7 @@ export function TerminalSettings({
           <div className="mt-6 flex justify-between">
             <button
               onClick={handleReset}
-              className="flex items-center gap-1 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
-            >
+              className="flex items-center gap-1 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors">
               <RotateCcw className="w-4 h-4" />
               Reset to Default
             </button>

@@ -1,28 +1,28 @@
-import { useEffect, useState } from "react";
+import * as Collapsible from "@radix-ui/react-collapsible";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
-  X,
-  Upload,
-  Download,
+  AlertCircle,
   CheckCircle,
-  XCircle,
-  Loader2,
-  Clock,
   ChevronDown,
   ChevronRight,
+  Clock,
+  Download,
+  Loader2,
   Trash2,
-  AlertCircle,
+  Upload,
+  X,
+  XCircle,
 } from "lucide-react";
-import * as Dialog from "@radix-ui/react-dialog";
-import * as Collapsible from "@radix-ui/react-collapsible";
+import { useEffect, useState } from "react";
+import {
+  phase4EventApi,
+  TransferCompletedPayload,
+  TransferProgressPayload,
+  TransferState,
+  TransferStatus,
+} from "../../lib/tauri";
 import { cn } from "../../lib/utils";
 import { useAppStore } from "../../store";
-import {
-  TransferStatus,
-  TransferState,
-  phase4EventApi,
-  TransferProgressPayload,
-  TransferCompletedPayload,
-} from "../../lib/tauri";
 
 interface TransferQueueProps {
   /** Whether the dialog is open */
@@ -40,11 +40,15 @@ interface TransferQueueProps {
 export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
   const transfers = useAppStore((state) => state.transfers);
   const cancelTransfer = useAppStore((state) => state.cancelTransfer);
-  const updateTransferStatus = useAppStore((state) => state.updateTransferStatus);
+  const updateTransferStatus = useAppStore(
+    (state) => state.updateTransferStatus,
+  );
   const removeTransfer = useAppStore((state) => state.removeTransfer);
   const showError = useAppStore((state) => state.showError);
 
-  const [expandedTransfers, setExpandedTransfers] = useState<Set<string>>(new Set());
+  const [expandedTransfers, setExpandedTransfers] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Subscribe to transfer events
   useEffect(() => {
@@ -54,31 +58,39 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
     let unsubCompleted: (() => void) | null = null;
 
     const setupListeners = async () => {
-      unsubProgress = await phase4EventApi.onTransferProgress((payload: TransferProgressPayload) => {
-        // Update transfer progress in store
-        const transfer = transfers.find((t) => t.id === payload.transfer_id);
-        if (transfer) {
-          updateTransferStatus({
-            ...transfer,
-            bytes_transferred: payload.bytes_transferred,
-            total_bytes: payload.total_bytes,
-            speed_bps: payload.speed_bps,
-            eta_seconds: payload.eta_seconds,
-            state: "in_progress",
-          });
-        }
-      });
+      unsubProgress = await phase4EventApi.onTransferProgress(
+        (payload: TransferProgressPayload) => {
+          // Update transfer progress in store
+          const transfer = transfers.find((t) => t.id === payload.transfer_id);
+          if (transfer) {
+            updateTransferStatus({
+              ...transfer,
+              bytes_transferred: payload.bytes_transferred,
+              total_bytes: payload.total_bytes,
+              speed_bps: payload.speed_bps,
+              eta_seconds: payload.eta_seconds,
+              state: "in_progress",
+            });
+          }
+        },
+      );
 
-      unsubCompleted = await phase4EventApi.onTransferCompleted((payload: TransferCompletedPayload) => {
-        const transfer = transfers.find((t) => t.id === payload.transfer_id);
-        if (transfer) {
-          updateTransferStatus({
-            ...transfer,
-            state: payload.success ? "completed" : { failed: payload.error || "Unknown error" },
-            bytes_transferred: payload.success ? transfer.total_bytes : transfer.bytes_transferred,
-          });
-        }
-      });
+      unsubCompleted = await phase4EventApi.onTransferCompleted(
+        (payload: TransferCompletedPayload) => {
+          const transfer = transfers.find((t) => t.id === payload.transfer_id);
+          if (transfer) {
+            updateTransferStatus({
+              ...transfer,
+              state: payload.success
+                ? "completed"
+                : { failed: payload.error || "Unknown error" },
+              bytes_transferred: payload.success
+                ? transfer.total_bytes
+                : transfer.bytes_transferred,
+            });
+          }
+        },
+      );
     };
 
     setupListeners();
@@ -107,7 +119,10 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
     try {
       await cancelTransfer(transferId);
     } catch (error) {
-      showError("Failed to cancel transfer", error instanceof Error ? error.message : String(error));
+      showError(
+        "Failed to cancel transfer",
+        error instanceof Error ? error.message : String(error),
+      );
     }
   };
 
@@ -119,14 +134,19 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
   // Clear all completed transfers
   const handleClearCompleted = () => {
     transfers
-      .filter((t) => isCompleted(t.state) || isFailed(t.state) || isCancelled(t.state))
+      .filter(
+        (t) =>
+          isCompleted(t.state) || isFailed(t.state) || isCancelled(t.state),
+      )
       .forEach((t) => removeTransfer(t.id));
   };
 
   // Categorize transfers
   const activeTransfers = transfers.filter((t) => isActive(t.state));
   const queuedTransfers = transfers.filter((t) => isQueued(t.state));
-  const completedTransfers = transfers.filter((t) => isCompleted(t.state) || isFailed(t.state) || isCancelled(t.state));
+  const completedTransfers = transfers.filter(
+    (t) => isCompleted(t.state) || isFailed(t.state) || isCancelled(t.state),
+  );
 
   const hasCompletedTransfers = completedTransfers.length > 0;
 
@@ -134,7 +154,7 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[80vh] bg-background border border-border rounded-lg shadow-lg z-50 flex flex-col">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[80vh] bg-background text-foreground border border-border rounded-lg shadow-lg z-50 flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div>
@@ -158,7 +178,9 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
           <TransferSummaryBar
             active={activeTransfers.length}
             queued={queuedTransfers.length}
-            completed={completedTransfers.filter((t) => isCompleted(t.state)).length}
+            completed={
+              completedTransfers.filter((t) => isCompleted(t.state)).length
+            }
             failed={completedTransfers.filter((t) => isFailed(t.state)).length}
           />
 
@@ -168,13 +190,17 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-12">
                 <Upload className="w-12 h-12 mb-4 opacity-50" />
                 <p className="text-lg font-medium">No transfers</p>
-                <p className="text-sm">Drag and drop files to start transferring</p>
+                <p className="text-sm">
+                  Drag and drop files to start transferring
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
                 {/* Active Transfers */}
                 {activeTransfers.length > 0 && (
-                  <TransferSection title="Active" count={activeTransfers.length}>
+                  <TransferSection
+                    title="Active"
+                    count={activeTransfers.length}>
                     {activeTransfers.map((transfer) => (
                       <TransferItem
                         key={transfer.id}
@@ -189,7 +215,9 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
 
                 {/* Queued Transfers */}
                 {queuedTransfers.length > 0 && (
-                  <TransferSection title="Queued" count={queuedTransfers.length}>
+                  <TransferSection
+                    title="Queued"
+                    count={queuedTransfers.length}>
                     {queuedTransfers.map((transfer) => (
                       <TransferItem
                         key={transfer.id}
@@ -204,7 +232,9 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
 
                 {/* Completed Transfers */}
                 {completedTransfers.length > 0 && (
-                  <TransferSection title="Completed" count={completedTransfers.length}>
+                  <TransferSection
+                    title="Completed"
+                    count={completedTransfers.length}>
                     {completedTransfers.map((transfer) => (
                       <TransferItem
                         key={transfer.id}
@@ -225,16 +255,14 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
             {hasCompletedTransfers && (
               <button
                 onClick={handleClearCompleted}
-                className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-accent"
-              >
+                className="px-3 py-1.5 rounded-md text-sm text-muted-foreground hover:bg-accent">
                 Clear completed
               </button>
             )}
             <div className="flex-1" />
             <button
               onClick={() => onOpenChange(false)}
-              className="px-4 py-2 rounded-md border border-border text-sm hover:bg-accent"
-            >
+              className="px-4 py-2 rounded-md border border-border text-sm hover:bg-accent">
               Close
             </button>
           </div>
@@ -243,7 +271,6 @@ export function TransferQueue({ open, onOpenChange }: TransferQueueProps) {
     </Dialog.Root>
   );
 }
-
 
 // Helper functions for transfer state
 function isQueued(state: TransferState): boolean {
@@ -305,7 +332,12 @@ interface TransferSummaryBarProps {
   failed: number;
 }
 
-function TransferSummaryBar({ active, queued, completed, failed }: TransferSummaryBarProps) {
+function TransferSummaryBar({
+  active,
+  queued,
+  completed,
+  failed,
+}: TransferSummaryBarProps) {
   return (
     <div className="flex items-center gap-4 px-6 py-3 bg-muted/50 border-b border-border text-sm">
       <div className="flex items-center gap-2">
@@ -343,7 +375,11 @@ function TransferSection({ title, count, children }: TransferSectionProps) {
   return (
     <Collapsible.Root open={isOpen} onOpenChange={setIsOpen} className="mb-4">
       <Collapsible.Trigger className="flex items-center gap-2 w-full text-left py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-        {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+        {isOpen ? (
+          <ChevronDown className="w-4 h-4" />
+        ) : (
+          <ChevronRight className="w-4 h-4" />
+        )}
         {title} ({count})
       </Collapsible.Trigger>
       <Collapsible.Content className="space-y-2 mt-2">
@@ -362,10 +398,17 @@ interface TransferItemProps {
   onRemove?: () => void;
 }
 
-function TransferItem({ transfer, isExpanded, onToggle, onCancel, onRemove }: TransferItemProps) {
-  const progress = transfer.total_bytes > 0
-    ? Math.round((transfer.bytes_transferred / transfer.total_bytes) * 100)
-    : 0;
+function TransferItem({
+  transfer,
+  isExpanded,
+  onToggle,
+  onCancel,
+  onRemove,
+}: TransferItemProps) {
+  const progress =
+    transfer.total_bytes > 0
+      ? Math.round((transfer.bytes_transferred / transfer.total_bytes) * 100)
+      : 0;
 
   const isUploading = transfer.direction === "upload";
   const stateIcon = getStateIcon(transfer.state);
@@ -376,14 +419,20 @@ function TransferItem({ transfer, isExpanded, onToggle, onCancel, onRemove }: Tr
       {/* Main Row */}
       <div
         className="flex items-center gap-3 p-3 cursor-pointer hover:bg-accent/50"
-        onClick={onToggle}
-      >
+        onClick={onToggle}>
         {/* Direction Icon */}
-        <div className={cn(
-          "p-2 rounded-lg",
-          isUploading ? "bg-blue-500/10 text-blue-500" : "bg-green-500/10 text-green-500"
-        )}>
-          {isUploading ? <Upload className="w-4 h-4" /> : <Download className="w-4 h-4" />}
+        <div
+          className={cn(
+            "p-2 rounded-lg",
+            isUploading
+              ? "bg-blue-500/10 text-blue-500"
+              : "bg-green-500/10 text-green-500",
+          )}>
+          {isUploading ? (
+            <Upload className="w-4 h-4" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
         </div>
 
         {/* File Info */}
@@ -419,31 +468,37 @@ function TransferItem({ transfer, isExpanded, onToggle, onCancel, onRemove }: Tr
 
         {/* Actions */}
         <div className="flex items-center gap-1">
-          {(isActive(transfer.state) || isQueued(transfer.state)) && onCancel && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onCancel();
-              }}
-              className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-              title="Cancel transfer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+          {(isActive(transfer.state) || isQueued(transfer.state)) &&
+            onCancel && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCancel();
+                }}
+                className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                title="Cancel transfer">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          {(isCompleted(transfer.state) ||
+            isFailed(transfer.state) ||
+            isCancelled(transfer.state)) &&
+            onRemove && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                className="p-1.5 rounded hover:bg-secondary text-muted-foreground"
+                title="Remove from list">
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          {isExpanded ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
           )}
-          {(isCompleted(transfer.state) || isFailed(transfer.state) || isCancelled(transfer.state)) && onRemove && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove();
-              }}
-              className="p-1.5 rounded hover:bg-secondary text-muted-foreground"
-              title="Remove from list"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-          {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </div>
       </div>
 
@@ -465,11 +520,15 @@ function TransferItem({ transfer, isExpanded, onToggle, onCancel, onRemove }: Tr
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <span className="text-muted-foreground">Local path:</span>
-              <div className="truncate font-mono text-xs">{transfer.local_path}</div>
+              <div className="truncate font-mono text-xs">
+                {transfer.local_path}
+              </div>
             </div>
             <div>
               <span className="text-muted-foreground">Remote path:</span>
-              <div className="truncate font-mono text-xs">{transfer.remote_path}</div>
+              <div className="truncate font-mono text-xs">
+                {transfer.remote_path}
+              </div>
             </div>
             <div>
               <span className="text-muted-foreground">Size:</span>
