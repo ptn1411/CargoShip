@@ -851,7 +851,7 @@ impl FileManager {
         let normalized_dir = normalize_path(remote_dir);
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
 
         let sftp = session
             .sftp()
@@ -967,7 +967,7 @@ impl FileManager {
         let normalized_path = normalize_path(remote_path);
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
 
         let sftp = session
             .sftp()
@@ -1002,7 +1002,7 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
 
         let command = format!("chmod {} '{}'", mode, normalized_path.replace("'", "'\\''"));
         self.exec_command_with_sudo_password(&session, &command, server.use_sudo, sudo_pwd_ref)?;

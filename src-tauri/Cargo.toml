@@ -69,3 +69,5 @@ whoami = "1"
 # Local terminal PTY
 portable-pty = "0.8"
 dirs = "5"
+rsa = { version = "0.9", features = ["std", "pem"] }
+pkcs1 = { version = "0.7", features = ["std", "pem"] }

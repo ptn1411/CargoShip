@@ -411,6 +411,12 @@ async fn run_migrations(pool: &SqlitePool) -> Result<()> {
             AppError::DatabaseError(format!("Failed to create ssh_keys name index: {}", e))
         })?;
 
+    // Migration: Add encrypted_private_key column if it doesn't exist
+    // This allows identifying keys that use the hybrid storage strategy (KEK in keyring, Blob in DB)
+    let _ = sqlx::query("ALTER TABLE ssh_keys ADD COLUMN encrypted_private_key TEXT")
+        .execute(pool)
+        .await;
+
     // Create database_connections table (passwords stored in keychain, not here)
     sqlx::query(
         r#"

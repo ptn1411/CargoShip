@@ -1,5 +1,5 @@
 import { Eye, EyeOff, Key, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CreateSshKeyInput, SshKey } from "../../lib/tauri";
 import { cn } from "../../lib/utils";
 
@@ -29,6 +29,18 @@ export function SshKeyForm({
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isSubmitting) {
+      setElapsedTime(0);
+      interval = setInterval(() => {
+        setElapsedTime((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isSubmitting]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -241,7 +253,7 @@ export function SshKeyForm({
               disabled={isSubmitting}
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
               {isSubmitting
-                ? "Processing..."
+                ? `Processing... (${elapsedTime}s)`
                 : isEditing
                   ? "Save Changes"
                   : "Generate Key"}

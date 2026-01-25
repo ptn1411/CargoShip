@@ -132,6 +132,32 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<LoadedK
         .to_openssh(LineEnding::LF)
         .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?;
 
+    // For RSA keys on Windows, we need PKCS#1 PEM format for WinCNG backend
+    // ssh-key crate only exports OpenSSH format, so we use rsa/pkcs1 crates for conversion
+    let mut final_data = openssh_data.to_string();
+
+    #[cfg(target_os = "windows")]
+    if let ssh_key::Algorithm::Rsa { .. } = private_key.algorithm() {
+        if let Some(key_data) = private_key.key_data().rsa() {
+            // Convert ssh-key RSA components to rsa crate components
+            use pkcs1::EncodeRsaPrivateKey;
+
+            let n = rsa::BigUint::from_bytes_be(key_data.public.n.as_bytes());
+            let e = rsa::BigUint::from_bytes_be(key_data.public.e.as_bytes());
+            let d = rsa::BigUint::from_bytes_be(key_data.private.d.as_bytes());
+            let p = rsa::BigUint::from_bytes_be(key_data.private.p.as_bytes());
+            let q = rsa::BigUint::from_bytes_be(key_data.private.q.as_bytes());
+
+            // Reconstruct full key
+            // Note: ssh-key provides iqmp (inverse of q mod p), rsa crate can compute dmp1/dmq1
+            if let Ok(rsa_key) = rsa::RsaPrivateKey::from_components(n, e, d, vec![p, q]) {
+                if let Ok(pem) = rsa_key.to_pkcs1_pem(rsa::pkcs8::LineEnding::LF) {
+                    final_data = pem.to_string();
+                }
+            }
+        }
+    }
+
     // Get public key
     let public_key_openssh = private_key.public_key().to_openssh().map_err(|e| {
         AppError::AuthenticationFailed(format!("Failed to extract public key: {}", e))
@@ -139,7 +165,7 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<LoadedK
 
     Ok(LoadedKey {
         key_type,
-        openssh_data: openssh_data.to_string(),
+        openssh_data: final_data,
         public_key_openssh,
     })
 }
@@ -226,13 +252,19 @@ pub fn ensure_key_in_agent(key_path: &Path, _passphrase: Option<&str>) -> Result
                             .to_string(),
                     ))
                 } else {
-                    // Key might already be added or other non-fatal error
-                    Ok(())
+                    // If it failed for another reason (e.g. invalid format, file not found), report it
+                    Err(AppError::AuthenticationFailed(format!(
+                        "ssh-add failed: {}",
+                        stderr
+                    )))
                 }
             }
-            Err(_) => {
-                // ssh-add not found, continue without agent
-                Ok(())
+            Err(e) => {
+                // ssh-add not found, likely not installed or not in PATH
+                Err(AppError::AuthenticationFailed(format!(
+                    "ssh-add command not found (install OpenSSH Client): {}",
+                    e
+                )))
             }
         }
     }

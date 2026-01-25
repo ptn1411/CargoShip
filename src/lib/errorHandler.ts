@@ -16,13 +16,22 @@ const errorPatterns: Array<{
   {
     pattern: /connection refused/i,
     title: "Connection Refused",
-    getMessage: () => "The server refused the connection. Check if SSH is running on the server.",
+    getMessage: () =>
+      "The server refused the connection. Check if SSH is running on the server.",
+    getAction: () => undefined,
+  },
+  {
+    pattern: /Ed25519 authentication failed/i,
+    title: "SSH Agent Required",
+    getMessage: (match) =>
+      match.input || "Ed25519 keys require SSH Agent on Windows.",
     getAction: () => undefined,
   },
   {
     pattern: /authentication failed/i,
     title: "Authentication Failed",
-    getMessage: () => "Invalid credentials. Please check your username and password/key.",
+    getMessage: () =>
+      "Invalid credentials. Please check your username and password/key.",
     getAction: () => undefined,
   },
   {
@@ -40,7 +49,8 @@ const errorPatterns: Array<{
   {
     pattern: /timeout|timed out/i,
     title: "Connection Timeout",
-    getMessage: () => "The connection timed out. Check your network and server availability.",
+    getMessage: () =>
+      "The connection timed out. Check your network and server availability.",
     getAction: () => undefined,
   },
   {
@@ -52,43 +62,50 @@ const errorPatterns: Array<{
   {
     pattern: /no route to host/i,
     title: "No Route to Host",
-    getMessage: () => "Cannot find a route to the server. Check the hostname and your network.",
+    getMessage: () =>
+      "Cannot find a route to the server. Check the hostname and your network.",
     getAction: () => undefined,
   },
   {
     pattern: /name or service not known|could not resolve/i,
     title: "DNS Resolution Failed",
-    getMessage: () => "Could not resolve the hostname. Check if the hostname is correct.",
+    getMessage: () =>
+      "Could not resolve the hostname. Check if the hostname is correct.",
     getAction: () => undefined,
   },
   {
     pattern: /server not found/i,
     title: "Server Not Found",
-    getMessage: () => "The specified server was not found in your configuration.",
+    getMessage: () =>
+      "The specified server was not found in your configuration.",
     getAction: () => undefined,
   },
   {
     pattern: /credential.*not found|no credential/i,
     title: "Credentials Not Found",
-    getMessage: () => "No credentials found for this server. Please add credentials.",
+    getMessage: () =>
+      "No credentials found for this server. Please add credentials.",
     getAction: () => undefined,
   },
   {
     pattern: /keychain|keyring.*unavailable/i,
     title: "Keychain Unavailable",
-    getMessage: () => "System keychain is not available. Credentials cannot be stored securely.",
+    getMessage: () =>
+      "System keychain is not available. Credentials cannot be stored securely.",
     getAction: () => undefined,
   },
   {
     pattern: /session limit|too many sessions/i,
     title: "Session Limit Reached",
-    getMessage: () => "Maximum number of terminal sessions reached. Close some sessions first.",
+    getMessage: () =>
+      "Maximum number of terminal sessions reached. Close some sessions first.",
     getAction: () => undefined,
   },
   {
     pattern: /database|sqlite/i,
     title: "Database Error",
-    getMessage: () => "A database error occurred. Try restarting the application.",
+    getMessage: () =>
+      "A database error occurred. Try restarting the application.",
     getAction: () => undefined,
   },
   {
@@ -143,7 +160,7 @@ export function createRetryAction(onRetry: () => void): ToastAction {
 // Helper to create navigate action
 export function createNavigateAction(
   label: string,
-  navigate: () => void
+  navigate: () => void,
 ): ToastAction {
   return {
     label,
