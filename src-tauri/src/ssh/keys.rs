@@ -90,7 +90,7 @@ impl SshKeyManager {
     }
 
     /// Retrieve private key from keychain
-    fn retrieve_private_key(&self, key_id: &str) -> Result<String> {
+    pub(crate) fn retrieve_private_key(&self, key_id: &str) -> Result<String> {
         let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
         let entry = keyring::Entry::new("devops-commander", &entry_key)
             .map_err(|e| AppError::CredentialError(format!("Failed to access keychain: {}", e)))?;

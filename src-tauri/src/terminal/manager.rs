@@ -1,6 +1,7 @@
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
+use crate::ssh::SshKeyManager;
 use crate::terminal::TerminalSession;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -14,6 +15,7 @@ pub struct TerminalManager {
     sessions: RwLock<HashMap<String, TerminalSession>>,
     credential_store: Arc<CredentialStore>,
     max_sessions: usize,
+    ssh_key_manager: Option<Arc<SshKeyManager>>,
 }
 
 impl TerminalManager {
@@ -22,6 +24,19 @@ impl TerminalManager {
             sessions: RwLock::new(HashMap::new()),
             credential_store,
             max_sessions: MAX_SESSIONS,
+            ssh_key_manager: None,
+        }
+    }
+
+    pub fn with_key_manager(
+        credential_store: Arc<CredentialStore>,
+        ssh_key_manager: Arc<SshKeyManager>,
+    ) -> Self {
+        Self {
+            sessions: RwLock::new(HashMap::new()),
+            credential_store,
+            max_sessions: MAX_SESSIONS,
+            ssh_key_manager: Some(ssh_key_manager),
         }
     }
 
@@ -30,6 +45,7 @@ impl TerminalManager {
             sessions: RwLock::new(HashMap::new()),
             credential_store,
             max_sessions,
+            ssh_key_manager: None,
         }
     }
 
@@ -47,7 +63,13 @@ impl TerminalManager {
             return Err(AppError::SessionLimitExceeded(self.max_sessions));
         }
 
-        let session = TerminalSession::create(server, &self.credential_store, cols, rows)?;
+        let session = TerminalSession::create(
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_ref(),
+            cols,
+            rows,
+        )?;
         let session_id = session.session_id.clone();
         sessions.insert(session_id.clone(), session);
 

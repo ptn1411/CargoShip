@@ -4282,10 +4282,22 @@ pub fn run() {
                 let group_manager = Arc::new(Mutex::new(GroupManager::new(db_pool.clone())));
                 let script_manager = Arc::new(Mutex::new(ScriptManager::new(db_pool.clone())));
                 let template_library = Arc::new(TemplateLibrary::new());
-                let ssh_client =
-                    Arc::new(SshClient::new(connection_pool, credential_store.clone()));
-                let file_browser = Arc::new(FileBrowser::new(credential_store.clone()));
-                let terminal_manager = Arc::new(TerminalManager::new(credential_store.clone()));
+                // Initialize SSH key manager
+                let ssh_key_manager = Arc::new(SshKeyManager::new(db_pool.clone()));
+
+                let ssh_client = Arc::new(SshClient::new(
+                    connection_pool,
+                    credential_store.clone(),
+                    ssh_key_manager.clone(),
+                ));
+                let file_browser = Arc::new(FileBrowser::with_key_manager(
+                    credential_store.clone(), 
+                    ssh_key_manager.clone()
+                ));
+                let terminal_manager = Arc::new(TerminalManager::with_key_manager(
+                    credential_store.clone(), 
+                    ssh_key_manager.clone()
+                ));
 
                 // Initialize cache manager
                 let cache_dir = app_data_dir.join("file_cache");
@@ -4319,9 +4331,10 @@ pub fn run() {
                 ));
 
                 // Initialize file manager
-                let file_manager = Arc::new(FileManager::new(
+                let file_manager = Arc::new(FileManager::with_key_manager(
                     credential_store.clone(),
                     cache_manager.clone(),
+                    ssh_key_manager.clone(),
                 ));
 
                 // Initialize sync engine
@@ -4342,9 +4355,10 @@ pub fn run() {
                 batch_executor.set_app_handle(app_handle.clone()).await;
 
                 // Initialize transfer manager (Phase 4 - Task 5)
-                let transfer_manager = Arc::new(TransferManager::new(
+                let transfer_manager = Arc::new(TransferManager::with_key_manager(
                     credential_store.clone(),
                     server_manager.clone(),
+                    ssh_key_manager.clone(),
                 ));
                 transfer_manager.set_app_handle(app_handle.clone()).await;
 
@@ -4374,8 +4388,7 @@ pub fn run() {
                 // Initialize settings manager
                 let settings_manager = Arc::new(SettingsManager::new(db_pool.clone()));
 
-                // Initialize SSH key manager
-                let ssh_key_manager = Arc::new(SshKeyManager::new(db_pool.clone()));
+
 
                 // Initialize Nginx manager
                 let nginx_manager = Arc::new(NginxManager::new(

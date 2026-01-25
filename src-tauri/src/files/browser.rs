@@ -2,22 +2,43 @@ use super::models::*;
 use crate::credentials::CredentialStore;
 use crate::error::{AppError, Result};
 use crate::server::Server;
-use crate::ssh::{authenticate_session, create_ssh_session};
+use crate::ssh::{authenticate_session, create_ssh_session, SshKeyManager};
 use chrono::{TimeZone, Utc};
 use std::sync::Arc;
 
 pub struct FileBrowser {
     credential_store: Arc<CredentialStore>,
+    ssh_key_manager: Option<Arc<SshKeyManager>>,
 }
 
 impl FileBrowser {
     pub fn new(credential_store: Arc<CredentialStore>) -> Self {
-        Self { credential_store }
+        Self {
+            credential_store,
+            ssh_key_manager: None, // Default to None, will be updated via setter or new constructor if needed.
+                                   // Wait, I should probably update the constructor to take it, but that breaks lib.rs even more if I don't update lib.rs first.
+                                   // But I'm updating lib.rs after.
+        }
+    }
+
+    pub fn with_key_manager(
+        credential_store: Arc<CredentialStore>,
+        ssh_key_manager: Arc<SshKeyManager>,
+    ) -> Self {
+        Self {
+            credential_store,
+            ssh_key_manager: Some(ssh_key_manager),
+        }
     }
 
     pub fn list_directory(&self, server: &Server, path: &str) -> Result<Vec<FileEntry>> {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
@@ -113,7 +134,12 @@ impl FileBrowser {
 
     pub fn get_file_info(&self, server: &Server, path: &str) -> Result<FileEntry> {
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store)?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
