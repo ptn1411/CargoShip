@@ -357,6 +357,27 @@ fn connect_with_timeout(
 
 use crate::ssh::SshKeyManager;
 
+/// Get SSH key fingerprint for debugging
+fn get_key_fingerprint(public_key_openssh: &str) -> String {
+    use sha2::{Sha256, Digest};
+    
+    // Parse the public key to get the key data
+    if let Ok(public_key) = ssh_key::PublicKey::from_openssh(public_key_openssh) {
+        // Get the key data bytes
+        let key_data = public_key.to_bytes().unwrap_or_default();
+        
+        // Calculate SHA256 fingerprint
+        let mut hasher = Sha256::new();
+        hasher.update(&key_data);
+        let hash = hasher.finalize();
+        
+        // Format as SHA256:base64
+        format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash))
+    } else {
+        "Unable to calculate fingerprint".to_string()
+    }
+}
+
 /// Authenticate an SSH session using the provided server credentials
 pub fn authenticate_session(
     session: &Session,
@@ -410,28 +431,82 @@ pub fn authenticate_session(
             match crate::ssh::load_private_key(key_path_obj, passphrase.as_deref()) {
                 Ok(loaded_key) => {
                     if loaded_key.key_type == crate::ssh::KeyType::Ed25519 {
-                        crate::ssh::ensure_key_in_agent(key_path_obj, passphrase.as_deref())?;
+                        // For Ed25519, ALWAYS try agent first on Windows
+                        #[cfg(target_os = "windows")]
+                        {
+                            let agent_result = (|| -> Result<()> {
+                                // Try to ensure key is in agent
+                                let _ = crate::ssh::ensure_key_in_agent(key_path_obj, passphrase.as_deref());
+                                
+                                // Try agent authentication
+                                let mut agent = session.agent().map_err(|e| {
+                                    AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
+                                })?;
+                                
+                                agent.connect().map_err(|e| {
+                                    AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
+                                })?;
+                                
+                                agent.list_identities().map_err(|e| {
+                                    AppError::AuthenticationFailed(format!("Failed to list agent identities: {}", e))
+                                })?;
+                                
+                                let identities = agent.identities().map_err(|e| {
+                                    AppError::AuthenticationFailed(format!("Failed to get agent identities: {}", e))
+                                })?;
+                                
+                                for identity in identities {
+                                    if agent.userauth(&server.username, &identity).is_ok() {
+                                        return Ok(());
+                                    }
+                                }
+                                
+                                Err(AppError::AuthenticationFailed(
+                                    "No matching identity found in SSH agent".to_string()
+                                ))
+                            })();
 
-                        if let Ok(mut agent) = session.agent() {
-                            if agent.connect().is_ok() {
-                                if agent.list_identities().is_ok() {
-                                    for identity in agent.identities().unwrap_or_default() {
-                                        if agent.userauth(&server.username, &identity).is_ok() {
-                                            return Ok(());
+                            if agent_result.is_ok() {
+                                return Ok(());
+                            }
+                            
+                            // If agent fails, return helpful error
+                            return Err(AppError::AuthenticationFailed(format!(
+                                "Ed25519 key authentication failed.\n\n\
+                                Ed25519 keys require SSH Agent on Windows.\n\
+                                Please add your key to the agent:\n\n\
+                                1. Open PowerShell\n\
+                                2. Run: ssh-add {}\n\
+                                3. Enter your passphrase when prompted\n\
+                                4. Retry the connection\n\n\
+                                Agent error: {:?}",
+                                key_path,
+                                agent_result.err()
+                            )));
+                        }
+
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            // On Unix, try agent first but fall through to file auth
+                            let agent_auth_success = (|| -> Result<bool> {
+                                crate::ssh::ensure_key_in_agent(key_path_obj, passphrase.as_deref())?;
+                                if let Ok(mut agent) = session.agent() {
+                                    if agent.connect().is_ok() && agent.list_identities().is_ok() {
+                                        for identity in agent.identities().unwrap_or_default() {
+                                            if agent.userauth(&server.username, &identity).is_ok() {
+                                                return Ok(true);
+                                            }
                                         }
                                     }
                                 }
+                                Ok(false)
+                            })()
+                            .unwrap_or(false);
+
+                            if agent_auth_success {
+                                return Ok(());
                             }
                         }
-
-                        return Err(AppError::AuthenticationFailed(
-                            "Ed25519 key authentication failed. SSH Agent may not be running.\n\
-                            Please run in PowerShell (Admin):\n\
-                            Set-Service ssh-agent -StartupType Automatic\n\
-                            Start-Service ssh-agent\n\n\
-                            Then restart the application."
-                                .to_string(),
-                        ));
                     }
 
                     let temp_key = crate::ssh::write_temp_key(&loaded_key).map_err(|e| {
@@ -441,16 +516,67 @@ pub fn authenticate_session(
                         ))
                     })?;
 
+                    // First, check what authentication methods are available
+                    let auth_methods = session.auth_methods(&server.username).unwrap_or_default();
+                    
+                    if !auth_methods.contains("publickey") {
+                        return Err(AppError::AuthenticationFailed(format!(
+                            "Server does not support public key authentication. Available methods: {}",
+                            auth_methods
+                        )));
+                    }
+
+                    // Get public key fingerprint for debugging
+                    let fingerprint = get_key_fingerprint(&loaded_key.public_key_openssh);
+
                     session
                         .userauth_pubkey_file(&server.username, None, temp_key.path(), None)
                         .map_err(|e| {
-                            AppError::AuthenticationFailed(format!(
-                                "SSH key authentication failed: {}. Key type: {:?}",
-                                e, loaded_key.key_type
-                            ))
+                            let error_msg = format!(
+                                "SSH key authentication failed: {}. Key type: {:?}\n\n\
+                                Possible causes:\n\
+                                1. Public key not in server's ~/.ssh/authorized_keys\n\
+                                2. Wrong username (current: {})\n\
+                                3. Server SSH permissions issue (check ~/.ssh folder permissions)\n\
+                                4. Key format incompatibility\n\n\
+                                Debug info:\n\
+                                - Key path: {}\n\
+                                - Server auth methods: {}\n\
+                                - Public key fingerprint: {}\n\n\
+                                To verify, run on server:\n\
+                                ssh-keygen -lf ~/.ssh/authorized_keys",
+                                e, 
+                                loaded_key.key_type,
+                                server.username,
+                                key_path,
+                                auth_methods,
+                                fingerprint
+                            );
+                            AppError::AuthenticationFailed(error_msg)
                         })?;
                 }
                 Err(e) => {
+                    // Manual signing fallback for Ed25519 or if file load failed
+                    // This handles cases where libssh2 cannot parse the key file directly
+                    if passphrase.is_some() {
+                        // If we have a passphrase and standard loading failed, likely we just can't read it
+                        // Attempt to load purely in Rust
+                        let content = std::fs::read_to_string(key_path_obj).map_err(|io_e| {
+                            AppError::AuthenticationFailed(format!(
+                                "Failed to read key file: {}",
+                                io_e
+                            ))
+                        })?;
+                        authenticate_with_key_content(
+                            session,
+                            &server.username,
+                            &content,
+                            passphrase.as_deref(),
+                        )?;
+                        return Ok(());
+                    }
+
+                    // Otherwise try standard fallback
                     let fallback_result = session.userauth_pubkey_file(
                         &server.username,
                         None,
@@ -504,44 +630,71 @@ pub fn authenticate_with_key_content(
         .to_openssh(ssh_key::LineEnding::LF)
         .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?;
 
+    let mut agent_error_msg = String::from("Not attempted");
+
     // For Ed25519, try SSH agent first
     if key_type == crate::ssh::KeyType::Ed25519 {
-        // Write temp key for agent
-        let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
-            AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
-        })?;
-        temp_file.write_all(openssh_data.as_bytes()).map_err(|e| {
-            AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e))
-        })?;
-        temp_file.flush().map_err(|e| {
-            AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e))
-        })?;
+        let agent_result = (|| -> Result<bool> {
+            // Write temp key for agent (agent needs a file path usually, unfortunately)
+            let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
+            })?;
+            temp_file.write_all(openssh_data.as_bytes()).map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e))
+            })?;
+            temp_file.flush().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e))
+            })?;
 
-        crate::ssh::ensure_key_in_agent(temp_file.path(), None)?;
+            // Try to add key to agent
+            crate::ssh::ensure_key_in_agent(temp_file.path(), None)?;
 
-        if let Ok(mut agent) = session.agent() {
-            if agent.connect().is_ok() {
-                if agent.list_identities().is_ok() {
-                    for identity in agent.identities().unwrap_or_default() {
-                        if agent.userauth(username, &identity).is_ok() {
-                            return Ok(());
-                        }
-                    }
+            // Try to authenticate using agent
+            let mut agent = session.agent().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to initialize SSH agent: {}", e))
+            })?;
+            
+            agent.connect().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
+            })?;
+            
+            agent.list_identities().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to list agent identities: {}", e))
+            })?;
+            
+            let identities = agent.identities().map_err(|e| {
+                AppError::AuthenticationFailed(format!("Failed to get agent identities: {}", e))
+            })?;
+            
+            if identities.is_empty() {
+                return Err(AppError::AuthenticationFailed(
+                    "No identities found in SSH agent after adding key".to_string()
+                ));
+            }
+            
+            for identity in identities {
+                if agent.userauth(username, &identity).is_ok() {
+                    return Ok(true);
                 }
             }
-        }
+            
+            Err(AppError::AuthenticationFailed(
+                "Agent has identities but none matched for authentication".to_string()
+            ))
+        })();
 
-        return Err(AppError::AuthenticationFailed(
-            "Ed25519 key authentication failed. SSH Agent may not be running.\n\
-            Please run in PowerShell (Admin):\n\
-            Set-Service ssh-agent -StartupType Automatic\n\
-            Start-Service ssh-agent\n\n\
-            Then restart the application."
-                .to_string(),
-        ));
+        if let Ok(true) = agent_result {
+            return Ok(());
+        }
+        if let Err(e) = &agent_result {
+            agent_error_msg = e.to_string();
+        }
     }
 
-    // For RSA/ECDSA, write to temp file and authenticate
+    // For Ed25519, standard temp file method works if libssh2 is built with OpenSSL (via vendored-openssl feature)
+    // or if we use SSH Agent.
+
+    // Fallback to temp file (works with vendored-openssl for Ed25519)
     let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
         AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
     })?;
@@ -552,13 +705,43 @@ pub fn authenticate_with_key_content(
         .flush()
         .map_err(|e| AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e)))?;
 
+    // Check available auth methods
+    let auth_methods = session.auth_methods(username).unwrap_or_default();
+    
+    if !auth_methods.contains("publickey") {
+        return Err(AppError::AuthenticationFailed(format!(
+            "Server does not support public key authentication. Available methods: {}",
+            auth_methods
+        )));
+    }
+
     session
         .userauth_pubkey_file(username, None, temp_file.path(), None)
         .map_err(|e| {
-            AppError::AuthenticationFailed(format!(
-                "SSH key authentication failed: {}. Key type: {:?}",
-                e, key_type
-            ))
+            if key_type == crate::ssh::KeyType::Ed25519 {
+                AppError::AuthenticationFailed(format!(
+                    "Ed25519 authentication failed: {}. \n\
+                     Agent Error: '{}'. \n\n\
+                     Ed25519 keys require SSH Agent on Windows. Please:\n\
+                     1. Open PowerShell as Administrator\n\
+                     2. Run: Set-Service ssh-agent -StartupType Automatic\n\
+                     3. Run: Start-Service ssh-agent\n\
+                     4. Retry the connection\n\n\
+                     Server auth methods: {}",
+                    e, agent_error_msg, auth_methods
+                ))
+            } else {
+                AppError::AuthenticationFailed(format!(
+                    "SSH key authentication failed: {}. Key type: {:?}\n\n\
+                     Possible causes:\n\
+                     1. Public key not in server's ~/.ssh/authorized_keys\n\
+                     2. Wrong username (current: {})\n\
+                     3. Server SSH permissions issue\n\
+                     4. Key format incompatibility\n\n\
+                     Server auth methods: {}",
+                    e, key_type, username, auth_methods
+                ))
+            }
         })?;
 
     Ok(())

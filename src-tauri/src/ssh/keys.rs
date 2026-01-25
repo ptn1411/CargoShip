@@ -1,3 +1,7 @@
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
+};
 use crate::error::{AppError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -78,6 +82,46 @@ impl SshKeyManager {
         Self { db }
     }
 
+    /// Encrypt data using AES-256-GCM
+    fn encrypt_data(data: &[u8], key_bytes: &[u8; 32]) -> Result<String> {
+        let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 96-bits; unique per message
+
+        let ciphertext = cipher
+            .encrypt(&nonce, data)
+            .map_err(|e| AppError::SshError(format!("Encryption failed: {}", e)))?;
+
+        // Format: nonce + ciphertext (base64)
+        let mut combined = nonce.to_vec();
+        combined.extend(ciphertext);
+
+        // Standard base64 engine
+        use base64::{engine::general_purpose, Engine as _};
+        Ok(general_purpose::STANDARD.encode(combined))
+    }
+
+    /// Decrypt data using AES-256-GCM
+    fn decrypt_data(encrypted_data_base64: &str, key_bytes: &[u8; 32]) -> Result<Vec<u8>> {
+        use base64::{engine::general_purpose, Engine as _};
+        let encrypted_bytes = general_purpose::STANDARD
+            .decode(encrypted_data_base64)
+            .map_err(|e| AppError::SshError(format!("Base64 decode failed: {}", e)))?;
+
+        if encrypted_bytes.len() < 12 {
+            return Err(AppError::SshError("Invalid encrypted data length".to_string()));
+        }
+
+        let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        let nonce = Nonce::from_slice(&encrypted_bytes[..12]);
+        let ciphertext = &encrypted_bytes[12..];
+
+        cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| AppError::SshError(format!("Decryption failed: {}", e)))
+    }
+
     /// Store private key in keychain
     fn store_private_key(&self, key_id: &str, private_key: &str) -> Result<()> {
         let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
@@ -89,8 +133,14 @@ impl SshKeyManager {
             .map_err(|e| AppError::CredentialError(format!("Failed to store private key: {}", e)))
     }
 
-    /// Retrieve private key from keychain
-    pub(crate) fn retrieve_private_key(&self, key_id: &str) -> Result<String> {
+    /// Store Key Encryption Key (KEK) in keychain
+    fn store_kek(&self, key_id: &str, kek_base64: &str) -> Result<()> {
+        // Use the same prefix but store a small key instead of the full blob
+        self.store_private_key(key_id, kek_base64)
+    }
+
+    /// Retrieve raw content from keychain
+    pub(crate) fn retrieve_from_keyring(&self, key_id: &str) -> Result<String> {
         let entry_key = format!("{}:{}", SSH_PRIVATE_KEY_PREFIX, key_id);
         let entry = keyring::Entry::new("devops-commander", &entry_key)
             .map_err(|e| AppError::CredentialError(format!("Failed to access keychain: {}", e)))?;
@@ -98,6 +148,54 @@ impl SshKeyManager {
         entry.get_password().map_err(|e| {
             AppError::CredentialError(format!("Failed to retrieve private key: {}", e))
         })
+    }
+
+    /// Retrieve private key from keychain or hybrid storage
+    pub(crate) fn retrieve_private_key(&self, key_id: &str) -> Result<String> {
+        // Check if we have an encrypted blob in the DB (new/hybrid method)
+        // We MUST spawn a separate thread to run the async block because we might be calling this
+        // from within a Tokio runtime worker thread (which panics if we try to block_on).
+        let db = self.db.clone();
+        let key_id_owned = key_id.to_string();
+
+        let row = std::thread::spawn(move || {
+            tauri::async_runtime::block_on(async move {
+                sqlx::query_as::<_, (Option<String>,)>(
+                    "SELECT encrypted_private_key FROM ssh_keys WHERE id = ?",
+                )
+                .bind(key_id_owned)
+                .fetch_optional(&db)
+                .await
+            })
+        })
+        .join()
+        .map_err(|_| AppError::SshError("Thread panicked during key retrieval".to_string()))?
+        .map_err(|e| AppError::DatabaseError(format!("Failed to query SSH key: {}", e)))?;
+
+        if let Some((Some(encrypted_blob),)) = row {
+            // Hybrid mode: KEK is in keyring, encrypted blob is in DB
+            let kek_base64 = self.retrieve_from_keyring(key_id)?;
+
+            use base64::{engine::general_purpose, Engine as _};
+            let kek_bytes = general_purpose::STANDARD
+                .decode(&kek_base64)
+                .map_err(|e| AppError::SshError(format!("Invalid KEK format: {}", e)))?;
+
+            if kek_bytes.len() != 32 {
+                return Err(AppError::SshError("Invalid KEK length".to_string()));
+            }
+
+            let mut key_arr = [0u8; 32];
+            key_arr.copy_from_slice(&kek_bytes);
+
+            let decrypted_bytes = Self::decrypt_data(&encrypted_blob, &key_arr)?;
+
+            return String::from_utf8(decrypted_bytes)
+                .map_err(|e| AppError::SshError(format!("Invalid UTF-8 in private key: {}", e)));
+        }
+
+        // Legacy mode: Full private key is in keyring
+        self.retrieve_from_keyring(key_id)
     }
 
     /// Delete private key from keychain
@@ -171,17 +269,27 @@ impl SshKeyManager {
                 .to_string()
         };
 
-        // Store private key in keychain (secure)
-        self.store_private_key(&id, &private_key_pem)?;
+        // Hybrid Encryption Storage Strategy
+        // 1. Generate a random 32-byte Key Encryption Key (KEK)
+        let mut kek = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut kek);
+
+        // 2. Encrypt the private key PEM with the KEK
+        let encrypted_blob = Self::encrypt_data(private_key_pem.as_bytes(), &kek)?;
+
+        // 3. Store KEK in Keychain (safe, small size)
+        use base64::{engine::general_purpose, Engine as _};
+        let kek_base64 = general_purpose::STANDARD.encode(kek);
+        self.store_kek(&id, &kek_base64)?;
 
         let now = Utc::now();
         let key_type_str = input.key_type.to_string();
 
-        // Store public info in database (no private key)
+        // 4. Store public info AND encrypted private key in database
         sqlx::query(
             r#"
-            INSERT INTO ssh_keys (id, name, key_type, public_key, fingerprint, comment, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ssh_keys (id, name, key_type, public_key, fingerprint, comment, created_at, encrypted_private_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&id)
@@ -191,6 +299,7 @@ impl SshKeyManager {
         .bind(&fingerprint)
         .bind(&input.comment)
         .bind(now.to_rfc3339())
+        .bind(&encrypted_blob)
         .execute(&self.db)
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to store SSH key: {}", e)))?;

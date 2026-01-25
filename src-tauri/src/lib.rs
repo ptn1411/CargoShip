@@ -1040,6 +1040,35 @@ async fn clear_sudo_password(
     Ok(())
 }
 
+// ============================================================================
+// SSH Agent Management Commands
+// ============================================================================
+
+/// Check SSH Agent status
+#[tauri::command]
+async fn check_ssh_agent_status() -> std::result::Result<String, String> {
+    let status = crate::ssh::check_agent_status();
+    Ok(format!("{:?}", status))
+}
+
+/// Attempt to start SSH Agent automatically
+#[tauri::command]
+async fn start_ssh_agent() -> std::result::Result<(), String> {
+    crate::ssh::auto_start_agent().map_err(|e| e.to_string())
+}
+
+/// Configure SSH Agent to auto-start on boot
+#[tauri::command]
+async fn configure_ssh_agent_autostart() -> std::result::Result<(), String> {
+    crate::ssh::configure_auto_start().map_err(|e| e.to_string())
+}
+
+/// Check if a key is in the SSH Agent
+#[tauri::command]
+async fn is_key_in_agent(fingerprint: String) -> std::result::Result<bool, String> {
+    Ok(crate::ssh::is_key_in_agent(&fingerprint))
+}
+
 #[tauri::command]
 async fn check_duplicate_server(
     state: tauri::State<'_, AppState>,
@@ -4495,6 +4524,11 @@ pub fn run() {
             store_key_passphrase,
             set_sudo_password,
             clear_sudo_password,
+            // SSH Agent commands
+            check_ssh_agent_status,
+            start_ssh_agent,
+            configure_ssh_agent_autostart,
+            is_key_in_agent,
             // File operation commands (Task 6.1)
             download_file,
             save_file,
