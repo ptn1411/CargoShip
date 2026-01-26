@@ -6,8 +6,8 @@ mod models;
 mod pool;
 
 pub use agent_setup::{
-    add_key_to_agent, auto_start_agent, check_agent_status, configure_auto_start,
-    is_key_in_agent, AgentStatus,
+    add_key_to_agent, auto_start_agent, check_agent_status, configure_auto_start, is_key_in_agent,
+    AgentStatus,
 };
 pub use client::*;
 pub use key_utils::{

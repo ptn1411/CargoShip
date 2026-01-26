@@ -32,7 +32,7 @@ export function SshKeyForm({
   const [elapsedTime, setElapsedTime] = useState(0);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: number | undefined;
     if (isSubmitting) {
       setElapsedTime(0);
       interval = setInterval(() => {
