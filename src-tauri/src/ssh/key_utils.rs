@@ -81,38 +81,35 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<LoadedK
         )));
     }
 
-    // Try to parse the key
-    let private_key = if let Some(pass) = passphrase.filter(|p| !p.is_empty()) {
-        let encrypted_key = PrivateKey::from_openssh(content.as_bytes()).map_err(|e| {
-            AppError::AuthenticationFailed(format!(
-                "Failed to parse SSH key '{}': {}",
-                path.display(),
-                e
-            ))
-        })?;
+    // Parse the key first
+    let parsed_key = PrivateKey::from_openssh(content.as_bytes()).map_err(|e| {
+        AppError::AuthenticationFailed(format!(
+            "Failed to parse SSH key '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
 
-        encrypted_key.decrypt(pass.as_bytes()).map_err(|e| {
-            AppError::AuthenticationFailed(format!(
-                "Failed to decrypt SSH key '{}': {}. The passphrase may be incorrect.",
-                path.display(),
-                e
-            ))
-        })?
-    } else {
-        PrivateKey::from_openssh(content.as_bytes()).map_err(|e| {
-            if content.contains("ENCRYPTED") {
+    // Decrypt only if the key is actually encrypted
+    let private_key = if parsed_key.is_encrypted() {
+        // Key is encrypted, we need a passphrase
+        if let Some(pass) = passphrase.filter(|p| !p.is_empty()) {
+            parsed_key.decrypt(pass.as_bytes()).map_err(|e| {
                 AppError::AuthenticationFailed(format!(
-                    "SSH key '{}' is encrypted but no passphrase was provided.",
-                    path.display()
-                ))
-            } else {
-                AppError::AuthenticationFailed(format!(
-                    "Failed to parse SSH key '{}': {}",
+                    "Failed to decrypt SSH key '{}': {}. The passphrase may be incorrect.",
                     path.display(),
                     e
                 ))
-            }
-        })?
+            })?
+        } else {
+            return Err(AppError::AuthenticationFailed(format!(
+                "SSH key '{}' is encrypted but no passphrase was provided.",
+                path.display()
+            )));
+        }
+    } else {
+        // Key is not encrypted, use it as-is
+        parsed_key
     };
 
     // Determine key type

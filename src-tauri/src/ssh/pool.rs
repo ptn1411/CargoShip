@@ -234,7 +234,7 @@ fn try_handshake_with_algorithms(session: &mut Session) -> std::result::Result<(
 
     let mut last_error = String::new();
 
-    for (i, kex) in kex_algorithms.iter().enumerate() {
+    for (_i, kex) in kex_algorithms.iter().enumerate() {
         // Set algorithm preferences (ignore errors - not all algorithms may be supported)
         let _ = session.method_pref(ssh2::MethodType::Kex, kex);
         let _ = session.method_pref(ssh2::MethodType::HostKey, host_key_algorithms);
@@ -579,19 +579,31 @@ pub fn authenticate_with_key_content(
 ) -> Result<()> {
     use std::io::Write;
 
-    // Parse the key to determine type
-    let private_key = if let Some(pass) = passphrase.filter(|p| !p.is_empty()) {
-        let encrypted_key =
-            ssh_key::PrivateKey::from_openssh(private_key_pem.as_bytes()).map_err(|e| {
-                AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e))
-            })?;
-        encrypted_key.decrypt(pass.as_bytes()).map_err(|e| {
-            AppError::AuthenticationFailed(format!("Failed to decrypt SSH key: {}", e))
-        })?
+    // Parse the key first to check if it's encrypted
+    let parsed_key = ssh_key::PrivateKey::from_openssh(private_key_pem.as_bytes()).map_err(|e| {
+        AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e))
+    })?;
+
+    // Decrypt only if the key is actually encrypted
+    let private_key = if parsed_key.is_encrypted() {
+        // Key is encrypted, we need a passphrase
+        if let Some(pass) = passphrase.filter(|p| !p.is_empty()) {
+            parsed_key.decrypt(pass.as_bytes()).map_err(|e| {
+                AppError::AuthenticationFailed(format!(
+                    "Failed to decrypt SSH key: {}. Please verify the passphrase is correct.",
+                    e
+                ))
+            })?
+        } else {
+            return Err(AppError::AuthenticationFailed(
+                "SSH key is encrypted but no passphrase was provided. \
+                 Please configure the key passphrase in the server settings."
+                    .to_string(),
+            ));
+        }
     } else {
-        ssh_key::PrivateKey::from_openssh(private_key_pem.as_bytes()).map_err(|e| {
-            AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e))
-        })?
+        // Key is already decrypted, use it as-is
+        parsed_key
     };
 
     let key_type = match private_key.algorithm() {
@@ -601,11 +613,57 @@ pub fn authenticate_with_key_content(
         _ => crate::ssh::KeyType::Unknown,
     };
 
+    log::debug!(
+        "authenticate_with_key_content: key_type={:?}, algorithm={:?}",
+        key_type,
+        private_key.algorithm()
+    );
+
     // Get unencrypted key in OpenSSH format
     let openssh_key = private_key
         .to_openssh(ssh_key::LineEnding::LF)
         .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?
         .to_string();
+
+    // For RSA keys on Windows, convert to PKCS#1 PEM format for better libssh2 compatibility
+    #[allow(unused_mut)]
+    let mut final_key_data = openssh_key.clone();
+
+    #[cfg(target_os = "windows")]
+    if let ssh_key::Algorithm::Rsa { .. } = private_key.algorithm() {
+        log::debug!("Converting RSA key to PKCS#1 PEM format for Windows");
+        if let Some(key_data) = private_key.key_data().rsa() {
+            use pkcs1::EncodeRsaPrivateKey;
+
+            let n = rsa::BigUint::from_bytes_be(key_data.public.n.as_bytes());
+            let e = rsa::BigUint::from_bytes_be(key_data.public.e.as_bytes());
+            let d = rsa::BigUint::from_bytes_be(key_data.private.d.as_bytes());
+            let p = rsa::BigUint::from_bytes_be(key_data.private.p.as_bytes());
+            let q = rsa::BigUint::from_bytes_be(key_data.private.q.as_bytes());
+
+            match rsa::RsaPrivateKey::from_components(n, e, d, vec![p, q]) {
+                Ok(rsa_key) => {
+                    match rsa_key.to_pkcs1_pem(rsa::pkcs8::LineEnding::LF) {
+                        Ok(pem) => {
+                            final_key_data = pem.to_string();
+                            log::debug!("Successfully converted RSA key to PEM format");
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to convert RSA key to PEM: {}, using OpenSSH format", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Failed to reconstruct RSA key: {}, using OpenSSH format", e);
+                }
+            }
+        }
+    }
+
+    log::debug!(
+        "authenticate_with_key_content: final_key_data starts with: {:?}",
+        final_key_data.chars().take(80).collect::<String>()
+    );
 
     let public_key_openssh = private_key
         .public_key()
@@ -617,7 +675,7 @@ pub fn authenticate_with_key_content(
 
     let loaded_key = LoadedKey {
         key_type,
-        openssh_data: openssh_key,
+        openssh_data: final_key_data,
         public_key_openssh: public_key_openssh.clone(),
     };
 
@@ -626,24 +684,41 @@ pub fn authenticate_with_key_content(
     // For Ed25519, try SSH agent first
     if key_type == crate::ssh::KeyType::Ed25519 {
         let agent_result = (|| -> Result<bool> {
+            // Ensure embedded agent is running and key is loaded
             crate::ssh::ensure_key_in_agent(&loaded_key)?;
+
+            // Log SSH_AUTH_SOCK for debugging
+            let ssh_auth_sock = std::env::var("SSH_AUTH_SOCK")
+                .unwrap_or_else(|_| "NOT SET".to_string());
+            log::info!(
+                "Attempting SSH agent authentication. SSH_AUTH_SOCK: {}",
+                ssh_auth_sock
+            );
 
             // Try to authenticate using agent
             let mut agent = session.agent().map_err(|e| {
+                log::error!("Failed to initialize SSH agent: {}", e);
                 AppError::AuthenticationFailed(format!("Failed to initialize SSH agent: {}", e))
             })?;
 
             agent.connect().map_err(|e| {
+                log::error!("Failed to connect to SSH agent at {}: {}", ssh_auth_sock, e);
                 AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
             })?;
 
+            log::debug!("Successfully connected to SSH agent");
+
             agent.list_identities().map_err(|e| {
+                log::error!("Failed to list agent identities: {}", e);
                 AppError::AuthenticationFailed(format!("Failed to list agent identities: {}", e))
             })?;
 
             let identities = agent.identities().map_err(|e| {
+                log::error!("Failed to get agent identities: {}", e);
                 AppError::AuthenticationFailed(format!("Failed to get agent identities: {}", e))
             })?;
+
+            log::info!("Found {} identities in SSH agent", identities.len());
 
             if identities.is_empty() {
                 return Err(AppError::AuthenticationFailed(
@@ -651,8 +726,10 @@ pub fn authenticate_with_key_content(
                 ));
             }
 
-            for identity in identities {
-                if agent.userauth(username, &identity).is_ok() {
+            for (i, identity) in identities.iter().enumerate() {
+                log::debug!("Trying identity {} for authentication", i);
+                if agent.userauth(username, identity).is_ok() {
+                    log::info!("Successfully authenticated with identity {}", i);
                     return Ok(true);
                 }
             }
@@ -667,13 +744,14 @@ pub fn authenticate_with_key_content(
         }
         if let Err(e) = &agent_result {
             agent_error_msg = e.to_string();
+            log::warn!("SSH agent authentication failed: {}. Falling back to direct key authentication.", agent_error_msg);
         }
     }
 
-    // For Ed25519, standard temp file method works if libssh2 is built with OpenSSL (via vendored-openssl feature)
-    // or if we use SSH Agent.
-
-    // Fallback to temp file (works with vendored-openssl for Ed25519)
+    // Fallback: Use direct key authentication
+    // This works on Windows when libssh2 is built with OpenSSL support (vendored-openssl feature)
+    log::info!("Attempting direct key file authentication for {:?}", key_type);
+    
     let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
         AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
     })?;
@@ -694,35 +772,52 @@ pub fn authenticate_with_key_content(
         )));
     }
 
-    session
-        .userauth_pubkey_file(username, None, temp_file.path(), None)
-        .map_err(|e| {
-            if key_type == crate::ssh::KeyType::Ed25519 {
-                AppError::AuthenticationFailed(format!(
-                    "Ed25519 authentication failed: {}. \n\
-                     Agent Error: '{}'. \n\n\
-                     Ed25519 keys require SSH Agent on Windows. Please:\n\
-                     1. Open PowerShell as Administrator\n\
-                     2. Run: Set-Service ssh-agent -StartupType Automatic\n\
-                     3. Run: Start-Service ssh-agent\n\
-                     4. Retry the connection\n\n\
-                     Server auth methods: {}",
-                    e, agent_error_msg, auth_methods
-                ))
-            } else {
-                AppError::AuthenticationFailed(format!(
-                    "SSH key authentication failed: {}. Key type: {:?}\n\n\
-                     Possible causes:\n\
-                     1. Public key not in server's ~/.ssh/authorized_keys\n\
-                     2. Wrong username (current: {})\n\
-                     3. Server SSH permissions issue\n\
-                     4. Key format incompatibility\n\n\
-                     Server auth methods: {}",
-                    e, key_type, username, auth_methods
-                ))
-            }
-        })?;
+    log::debug!("Attempting userauth_pubkey_file with temp key");
+    
+    // For Ed25519 on Windows, libssh2 may not support the key format
+    // Try userauth_pubkey_file first, if it fails, we'll provide helpful error
+    let auth_result = session.userauth_pubkey_file(username, None, temp_file.path(), None);
+    
+    if let Err(e) = auth_result {
+        let error_msg = if key_type == crate::ssh::KeyType::Ed25519 {
+            format!(
+                "Ed25519 key authentication failed: {}.\n\n\
+                 Embedded SSH Agent Error: {}\n\n\
+                 Ed25519 keys have limited support on Windows with libssh2.\n\n\
+                 Possible solutions:\n\
+                 1. Verify the public key is in the server's ~/.ssh/authorized_keys:\n\
+                    - Public key format: {}\n\
+                 2. Check SSH permissions on server:\n\
+                    - ~/.ssh folder: chmod 700 ~/.ssh\n\
+                    - authorized_keys: chmod 600 ~/.ssh/authorized_keys\n\
+                 3. Verify username is correct (current: {})\n\
+                 4. Consider using RSA key instead (better Windows support):\n\
+                    - Generate: ssh-keygen -t rsa -b 4096\n\n\
+                 Server auth methods: {}\n\
+                 SSH_AUTH_SOCK: {}",
+                e,
+                agent_error_msg,
+                public_key_openssh.split_whitespace().take(2).collect::<Vec<_>>().join(" "),
+                username,
+                auth_methods,
+                std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| "NOT SET".to_string())
+            )
+        } else {
+            format!(
+                "SSH key authentication failed: {}. Key type: {:?}\n\n\
+                 Possible causes:\n\
+                 1. Public key not in server's ~/.ssh/authorized_keys\n\
+                 2. Wrong username (current: {})\n\
+                 3. Server SSH permissions issue\n\
+                 4. Key format incompatibility\n\n\
+                 Server auth methods: {}",
+                e, key_type, username, auth_methods
+            )
+        };
+        return Err(AppError::AuthenticationFailed(error_msg));
+    }
 
+    log::info!("Successfully authenticated with direct key file method");
     Ok(())
 }
 

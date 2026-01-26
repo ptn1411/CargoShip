@@ -187,7 +187,17 @@ impl EmbeddedAgentHandle {
             })
             .map_err(|e| AppError::SshError(format!("Failed to start agent thread: {}", e)))?;
 
-        std::env::set_var("SSH_AUTH_SOCK", endpoint.socket_env_value());
+        // Set SSH_AUTH_SOCK environment variable
+        let socket_path = endpoint.socket_env_value();
+        std::env::set_var("SSH_AUTH_SOCK", &socket_path);
+        
+        log::info!(
+            "Embedded SSH agent started. SSH_AUTH_SOCK set to: {}",
+            socket_path
+        );
+
+        // Give the agent a moment to start listening (especially important on Windows)
+        std::thread::sleep(Duration::from_millis(100));
 
         Ok(Self {
             endpoint,
@@ -552,10 +562,16 @@ fn encode_identities_answer(store: &IdentityStore) -> Vec<u8> {
     response.push(SSH_AGENT_IDENTITIES_ANSWER);
 
     if let Some(identity) = store.current_identity() {
+        log::debug!(
+            "SSH Agent REQUEST_IDENTITIES: returning 1 identity (fingerprint: {}, comment: {})",
+            identity.fingerprint,
+            identity.comment
+        );
         response.extend_from_slice(&1u32.to_be_bytes());
         append_ssh_string(&mut response, identity.public_blob());
         append_ssh_string(&mut response, identity.comment.as_bytes());
     } else {
+        log::debug!("SSH Agent REQUEST_IDENTITIES: no identities loaded");
         response.extend_from_slice(&0u32.to_be_bytes());
     }
 
@@ -566,7 +582,7 @@ fn handle_sign_request(body: &[u8], store: &IdentityStore) -> Result<Vec<u8>> {
     let identity = match store.current_identity() {
         Some(identity) => identity,
         None => {
-            log::warn!("SIGN_REQUEST received but no identity loaded");
+            log::warn!("SIGN_REQUEST received but no identity loaded in embedded agent");
             return Ok(vec![SSH_AGENT_FAILURE]);
         }
     };
@@ -574,21 +590,45 @@ fn handle_sign_request(body: &[u8], store: &IdentityStore) -> Result<Vec<u8>> {
     let mut cursor = Cursor::new(body);
     let key_blob = read_ssh_string(&mut cursor)?;
     let data = read_ssh_string(&mut cursor)?;
-    let _flags = read_u32(&mut cursor).unwrap_or(0);
+    let flags = read_u32(&mut cursor).unwrap_or(0);
+
+    log::debug!(
+        "SSH Agent SIGN_REQUEST: key_blob_len={}, data_len={}, flags={}",
+        key_blob.len(),
+        data.len(),
+        flags
+    );
 
     if !identity.matches_blob(&key_blob) {
-        log::warn!("SIGN_REQUEST for unknown key");
+        log::warn!(
+            "SIGN_REQUEST for unknown key. Requested key blob length: {}, Current identity blob length: {}",
+            key_blob.len(),
+            identity.public_blob().len()
+        );
         return Ok(vec![SSH_AGENT_FAILURE]);
     }
 
+    log::debug!("Key blob matches current identity, proceeding with signature");
+
     let signature = identity.sign(&data)?;
+    
+    // Build signature blob in SSH wire format
     let mut signature_blob = Vec::new();
     append_ssh_string(&mut signature_blob, b"ssh-ed25519");
     append_ssh_string(&mut signature_blob, &signature);
 
+    log::debug!(
+        "Generated signature: signature_len={}, signature_blob_len={}",
+        signature.len(),
+        signature_blob.len()
+    );
+
     let mut response = Vec::with_capacity(signature_blob.len() + 5);
     response.push(SSH_AGENT_SIGN_RESPONSE);
     append_ssh_string(&mut response, &signature_blob);
+    
+    log::debug!("Sending SIGN_RESPONSE: total_len={}", response.len());
+    
     Ok(response)
 }
 
@@ -655,30 +695,81 @@ impl ResidentKey {
             ));
         }
 
+        // Parse the key - it should already be decrypted by load_private_key
         let private_key = ssh_key::PrivateKey::from_openssh(loaded_key.openssh_data.as_bytes())
-            .map_err(|e| AppError::AuthenticationFailed(format!("Failed to parse key: {}", e)))?;
+            .map_err(|e| {
+                log::error!(
+                    "Failed to parse key as OpenSSH format. Error: {}, First 100 chars: {:?}",
+                    e,
+                    loaded_key
+                        .openssh_data
+                        .chars()
+                        .take(100)
+                        .collect::<String>()
+                );
+                AppError::AuthenticationFailed(format!("Failed to parse SSH key: {}", e))
+            })?;
 
+        // Verify algorithm before attempting to extract key data
+        let actual_algorithm = private_key.algorithm();
+        if actual_algorithm != ssh_key::Algorithm::Ed25519 {
+            log::error!(
+                "Key algorithm mismatch. Expected Ed25519, got: {:?}",
+                actual_algorithm
+            );
+            return Err(AppError::AuthenticationFailed(format!(
+                "SSH key must be Ed25519 type. Detected: {:?}",
+                actual_algorithm
+            )));
+        }
+
+        // IMPORTANT: LoadedKey should contain decrypted key data
+        // If the key is still encrypted here, it means the decryption step was skipped
+        if private_key.is_encrypted() {
+            log::error!(
+                "Key is still encrypted after loading. This indicates the key was not properly decrypted. \
+                 Please ensure the passphrase is correct and provided during key loading."
+            );
+            return Err(AppError::AuthenticationFailed(
+                "SSH key is encrypted. Please configure the correct passphrase in server settings.".to_string(),
+            ));
+        }
+
+        // Extract Ed25519 keypair - this should succeed if key is properly decrypted
         let keypair = private_key.key_data().ed25519().ok_or_else(|| {
+            log::error!(
+                "Failed to extract Ed25519 keypair. Algorithm: {:?}, is_encrypted: {}, \
+                 This may indicate key corruption or unsupported key format.",
+                actual_algorithm,
+                private_key.is_encrypted()
+            );
             AppError::AuthenticationFailed(
-                "Provided key is not a valid Ed25519 keypair".to_string(),
+                "Failed to extract Ed25519 keypair. The key may be corrupted or in an unsupported format.".to_string()
             )
         })?;
 
+        // Serialize public key to SSH wire format (RFC 4253)
         let public_blob = private_key
             .public_key()
             .to_bytes()
-            .map_err(|e| AppError::SshError(format!("Failed to serialize public key: {}", e)))?;
+            .map_err(|e| {
+                log::error!("Failed to serialize public key to wire format: {}", e);
+                AppError::SshError(format!("Failed to serialize public key: {}", e))
+            })?;
 
+        // Calculate SHA256 fingerprint for logging and verification
         let fingerprint = private_key
             .public_key()
             .fingerprint(ssh_key::HashAlg::Sha256)
             .to_string();
 
+        // Extract comment from private key or fallback to public key comment
         let comment = {
             let extracted = private_key.comment().trim();
             if !extracted.is_empty() {
                 extracted.to_string()
             } else {
+                // Try to extract comment from public key (format: "ssh-ed25519 <key> <comment>")
                 loaded_key
                     .public_key_openssh
                     .split_whitespace()
@@ -687,6 +778,12 @@ impl ResidentKey {
                     .unwrap_or_else(|| "devops-commander".to_string())
             }
         };
+
+        log::info!(
+            "Successfully loaded Ed25519 key into embedded SSH agent. Fingerprint: {}, Comment: {}",
+            fingerprint,
+            comment
+        );
 
         Ok(Self {
             secret_key: Mutex::new(Zeroizing::new(keypair.private.to_bytes())),
@@ -709,9 +806,20 @@ impl ResidentKey {
         let secret: &[u8; 32] = key
             .as_ref()
             .try_into()
-            .map_err(|_| AppError::SshError("Invalid Ed25519 secret length".to_string()))?;
+            .map_err(|_| {
+                log::error!("Invalid Ed25519 secret key length. Expected 32 bytes, got: {}", key.len());
+                AppError::SshError("Invalid Ed25519 secret key length".to_string())
+            })?;
+        
         let signing_key = SigningKey::from_bytes(secret);
         let signature = signing_key.sign(data);
+        
+        log::debug!(
+            "Signed {} bytes of data with Ed25519 key. Signature length: {} bytes",
+            data.len(),
+            signature.to_bytes().len()
+        );
+        
         Ok(signature.to_bytes().to_vec())
     }
 }
