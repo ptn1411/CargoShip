@@ -1,5 +1,6 @@
 mod agent_setup;
 mod client;
+mod embedded_agent;
 mod key_utils;
 mod keys;
 mod models;
@@ -10,6 +11,9 @@ pub use agent_setup::{
     AgentStatus,
 };
 pub use client::*;
+pub use embedded_agent::{
+    agent_manager, AgentStatusFlags, EmbeddedAgentConfig, EmbeddedAgentManager,
+};
 pub use key_utils::{
     analyze_key_file, ensure_key_in_agent, load_private_key, write_temp_key, KeyInfo, KeyType,
     LoadedKey,
