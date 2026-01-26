@@ -355,7 +355,7 @@ fn connect_with_timeout(
     }
 }
 
-use crate::ssh::SshKeyManager;
+use crate::ssh::{LoadedKey, SshKeyManager};
 
 /// Get SSH key fingerprint for debugging
 fn get_key_fingerprint(public_key_openssh: &str) -> String {
@@ -434,100 +434,55 @@ pub fn authenticate_session(
             match crate::ssh::load_private_key(key_path_obj, passphrase.as_deref()) {
                 Ok(loaded_key) => {
                     if loaded_key.key_type == crate::ssh::KeyType::Ed25519 {
-                        // For Ed25519, ALWAYS try agent first on Windows
-                        #[cfg(target_os = "windows")]
-                        {
-                            let agent_result = (|| -> Result<()> {
-                                // Try to ensure key is in agent
-                                let _ = crate::ssh::ensure_key_in_agent(
-                                    key_path_obj,
-                                    passphrase.as_deref(),
-                                );
+                        let agent_result = (|| -> Result<()> {
+                            crate::ssh::ensure_key_in_agent(&loaded_key)?;
 
-                                // Try agent authentication
-                                let mut agent = session.agent().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!(
-                                        "Failed to connect to SSH agent: {}",
-                                        e
-                                    ))
-                                })?;
-
-                                agent.connect().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!(
-                                        "Failed to connect to SSH agent: {}",
-                                        e
-                                    ))
-                                })?;
-
-                                agent.list_identities().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!(
-                                        "Failed to list agent identities: {}",
-                                        e
-                                    ))
-                                })?;
-
-                                let identities = agent.identities().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!(
-                                        "Failed to get agent identities: {}",
-                                        e
-                                    ))
-                                })?;
-
-                                for identity in identities {
-                                    if agent.userauth(&server.username, &identity).is_ok() {
-                                        return Ok(());
-                                    }
-                                }
-
-                                Err(AppError::AuthenticationFailed(
-                                    "No matching identity found in SSH agent".to_string(),
+                            let mut agent = session.agent().map_err(|e| {
+                                AppError::AuthenticationFailed(format!(
+                                    "Failed to connect to embedded SSH agent: {}",
+                                    e
                                 ))
-                            })();
+                            })?;
 
-                            if agent_result.is_ok() {
-                                return Ok(());
-                            }
+                            agent.connect().map_err(|e| {
+                                AppError::AuthenticationFailed(format!(
+                                    "Failed to connect to embedded SSH agent: {}",
+                                    e
+                                ))
+                            })?;
 
-                            // If agent fails, return helpful error
-                            return Err(AppError::AuthenticationFailed(format!(
-                                "Ed25519 key authentication failed.\n\n\
-                                Ed25519 keys require SSH Agent on Windows.\n\
-                                Please add your key to the agent:\n\n\
-                                1. Open PowerShell\n\
-                                2. Run: ssh-add {}\n\
-                                3. Enter your passphrase when prompted\n\
-                                4. Retry the connection\n\n\
-                                Agent error: {:?}",
-                                key_path,
-                                agent_result.err()
-                            )));
-                        }
+                            agent.list_identities().map_err(|e| {
+                                AppError::AuthenticationFailed(format!(
+                                    "Failed to list embedded agent identities: {}",
+                                    e
+                                ))
+                            })?;
 
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            // On Unix, try agent first but fall through to file auth
-                            let agent_auth_success = (|| -> Result<bool> {
-                                crate::ssh::ensure_key_in_agent(
-                                    key_path_obj,
-                                    passphrase.as_deref(),
-                                )?;
-                                if let Ok(mut agent) = session.agent() {
-                                    if agent.connect().is_ok() && agent.list_identities().is_ok() {
-                                        for identity in agent.identities().unwrap_or_default() {
-                                            if agent.userauth(&server.username, &identity).is_ok() {
-                                                return Ok(true);
-                                            }
-                                        }
-                                    }
+                            let identities = agent.identities().map_err(|e| {
+                                AppError::AuthenticationFailed(format!(
+                                    "Failed to get embedded agent identities: {}",
+                                    e
+                                ))
+                            })?;
+
+                            for identity in identities {
+                                if agent.userauth(&server.username, &identity).is_ok() {
+                                    return Ok(());
                                 }
-                                Ok(false)
-                            })()
-                            .unwrap_or(false);
-
-                            if agent_auth_success {
-                                return Ok(());
                             }
-                        }
+
+                            Err(AppError::AuthenticationFailed(
+                                "No matching identity found in embedded SSH agent".to_string(),
+                            ))
+                        })();
+
+                        return agent_result.map_err(|err| {
+                            AppError::AuthenticationFailed(format!(
+                                "Embedded SSH Agent could not authenticate Ed25519 key: {}\nSSH_AUTH_SOCK={}",
+                                err,
+                                std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| "unset".to_string())
+                            ))
+                        });
                     }
 
                     let temp_key = crate::ssh::write_temp_key(&loaded_key).map_err(|e| {
@@ -647,28 +602,31 @@ pub fn authenticate_with_key_content(
     };
 
     // Get unencrypted key in OpenSSH format
-    let openssh_data = private_key
+    let openssh_key = private_key
         .to_openssh(ssh_key::LineEnding::LF)
-        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?;
+        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?
+        .to_string();
+
+    let public_key_openssh = private_key
+        .public_key()
+        .to_openssh()
+        .map_err(|e| {
+            AppError::AuthenticationFailed(format!("Failed to serialize public key: {}", e))
+        })?
+        .to_string();
+
+    let loaded_key = LoadedKey {
+        key_type,
+        openssh_data: openssh_key,
+        public_key_openssh: public_key_openssh.clone(),
+    };
 
     let mut agent_error_msg = String::from("Not attempted");
 
     // For Ed25519, try SSH agent first
     if key_type == crate::ssh::KeyType::Ed25519 {
         let agent_result = (|| -> Result<bool> {
-            // Write temp key for agent (agent needs a file path usually, unfortunately)
-            let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
-                AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
-            })?;
-            temp_file.write_all(openssh_data.as_bytes()).map_err(|e| {
-                AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e))
-            })?;
-            temp_file.flush().map_err(|e| {
-                AppError::AuthenticationFailed(format!("Failed to flush temp key: {}", e))
-            })?;
-
-            // Try to add key to agent
-            crate::ssh::ensure_key_in_agent(temp_file.path(), None)?;
+            crate::ssh::ensure_key_in_agent(&loaded_key)?;
 
             // Try to authenticate using agent
             let mut agent = session.agent().map_err(|e| {
@@ -720,7 +678,7 @@ pub fn authenticate_with_key_content(
         AppError::AuthenticationFailed(format!("Failed to create temp key file: {}", e))
     })?;
     temp_file
-        .write_all(openssh_data.as_bytes())
+        .write_all(loaded_key.openssh_data.as_bytes())
         .map_err(|e| AppError::AuthenticationFailed(format!("Failed to write temp key: {}", e)))?;
     temp_file
         .flush()

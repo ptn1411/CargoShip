@@ -1,10 +1,6 @@
 use crate::error::{AppError, Result};
 use ssh_key::{LineEnding, PrivateKey};
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use std::path::Path;
-#[cfg(target_os = "windows")]
-use std::process::Command;
 
 /// Supported key types that can be converted
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -201,134 +197,13 @@ pub fn write_temp_key(loaded_key: &LoadedKey) -> Result<tempfile::NamedTempFile>
     Ok(temp_file)
 }
 
-/// Ensure ssh-agent is running and add the key to it (Windows)
-/// This handles Ed25519 keys that libssh2 doesn't support natively
-pub fn ensure_key_in_agent(key_path: &Path, _passphrase: Option<&str>) -> Result<()> {
-    #[cfg(target_os = "windows")]
-    {
-        // Try multiple methods to start ssh-agent
-        if !is_ssh_agent_running() {
-            start_ssh_agent_service();
-        }
-
-        // Check if key is already in agent
-        let list_output = Command::new("ssh-add").arg("-l").output();
-
-        if let Ok(output) = list_output {
-            let keys_list = String::from_utf8_lossy(&output.stdout);
-            let key_path_str = key_path.to_string_lossy();
-
-            // If key appears to be added (check by path or key type), we're done
-            if keys_list.contains(&*key_path_str)
-                || (keys_list.contains("ED25519") || keys_list.contains("ed25519"))
-            {
-                return Ok(());
-            }
-        }
-
-        // Add key to agent (without passphrase - user will be prompted if needed)
-        let add_result = Command::new("ssh-add").arg(key_path).output();
-
-        match add_result {
-            Ok(output) if output.status.success() => Ok(()),
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                if stderr.contains("Could not open a connection to your authentication agent") {
-                    // Last resort: try to start agent one more time with different method
-                    start_ssh_agent_service();
-
-                    // Try adding key again
-                    if let Ok(retry_output) = Command::new("ssh-add").arg(key_path).output() {
-                        if retry_output.status.success() {
-                            return Ok(());
-                        }
-                    }
-
-                    Err(AppError::AuthenticationFailed(
-                        "SSH Agent could not be started automatically.\n\
-                        Please run these commands in PowerShell (Admin) once:\n\n\
-                        Set-Service ssh-agent -StartupType Automatic\n\
-                        Start-Service ssh-agent\n\n\
-                        This only needs to be done once per system."
-                            .to_string(),
-                    ))
-                } else {
-                    // If it failed for another reason (e.g. invalid format, file not found), report it
-                    Err(AppError::AuthenticationFailed(format!(
-                        "ssh-add failed: {}",
-                        stderr
-                    )))
-                }
-            }
-            Err(e) => {
-                // ssh-add not found, likely not installed or not in PATH
-                Err(AppError::AuthenticationFailed(format!(
-                    "ssh-add command not found (install OpenSSH Client): {}",
-                    e
-                )))
-            }
-        }
+/// Ensure embedded ssh-agent is running and the key is loaded
+pub fn ensure_key_in_agent(loaded_key: &LoadedKey) -> Result<()> {
+    if loaded_key.key_type != KeyType::Ed25519 {
+        return Ok(());
     }
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        // On Unix, ssh-agent usually works better
-        let _ = key_path;
-        Ok(())
-    }
-}
-
-/// Check if SSH Agent service is running on Windows
-#[cfg(target_os = "windows")]
-fn is_ssh_agent_running() -> bool {
-    // Method 1: Use sc query (works without admin)
-    if let Ok(output) = Command::new("sc").args(["query", "ssh-agent"]).output() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout.contains("RUNNING") {
-            return true;
-        }
-    }
-
-    // Method 2: Check if ssh-add -l works
-    if let Ok(output) = Command::new("ssh-add").arg("-l").output() {
-        // Exit code 0 or 1 means agent is running (1 = no identities)
-        let code = output.status.code().unwrap_or(-1);
-        if code == 0 || code == 1 {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Try to start SSH Agent service using multiple methods
-#[cfg(target_os = "windows")]
-fn start_ssh_agent_service() {
-    // Method 1: Use net start (sometimes works without admin for auto-start services)
-    let _ = Command::new("net")
-        .args(["start", "ssh-agent"])
-        .creation_flags(0x08000000) // CREATE_NO_WINDOW
-        .output();
-
-    // Method 2: Use sc start
-    let _ = Command::new("sc")
-        .args(["start", "ssh-agent"])
-        .creation_flags(0x08000000)
-        .output();
-
-    // Method 3: PowerShell Start-Service
-    let _ = Command::new("powershell")
-        .args([
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "Start-Service ssh-agent -ErrorAction SilentlyContinue",
-        ])
-        .creation_flags(0x08000000)
-        .output();
-
-    // Give the service a moment to start
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    crate::ssh::agent_manager().ensure_identity_loaded(loaded_key)
 }
 
 #[cfg(test)]
