@@ -31,6 +31,11 @@ ssh-key = { version = "0.6", features = ["ed25519", "rsa", "encryption", "std"] 
 socket2 = "0.5"
 rand = "0.8"
 
+# Pure Rust SSH for Ed25519 support on Windows
+russh = "0.45"
+russh-keys = "0.45"
+async-trait = "0.1"
+
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 

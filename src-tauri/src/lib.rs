@@ -1069,6 +1069,36 @@ async fn is_key_in_agent(fingerprint: String) -> std::result::Result<bool, Strin
     Ok(crate::ssh::is_key_in_agent(&fingerprint))
 }
 
+/// Get recommended SSH key type for current platform
+#[tauri::command]
+fn get_recommended_key_type() -> std::result::Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(serde_json::json!({
+            "recommended": "rsa",
+            "reason": "RSA keys have better support on Windows with libssh2",
+            "alternatives": [{
+                "type": "ed25519",
+                "warning": "Ed25519 keys have limited support on Windows. May not work with all servers."
+            }],
+            "platform": "windows"
+        }))
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(serde_json::json!({
+            "recommended": "ed25519",
+            "reason": "Ed25519 keys are more secure and faster than RSA",
+            "alternatives": [{
+                "type": "rsa",
+                "note": "RSA 4096-bit is also secure but slower"
+            }],
+            "platform": "unix"
+        }))
+    }
+}
+
 #[tauri::command]
 async fn check_duplicate_server(
     state: tauri::State<'_, AppState>,

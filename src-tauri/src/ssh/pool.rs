@@ -234,7 +234,7 @@ fn try_handshake_with_algorithms(session: &mut Session) -> std::result::Result<(
 
     let mut last_error = String::new();
 
-    for (_i, kex) in kex_algorithms.iter().enumerate() {
+    for (attempt, kex) in kex_algorithms.iter().enumerate() {
         // Set algorithm preferences (ignore errors - not all algorithms may be supported)
         let _ = session.method_pref(ssh2::MethodType::Kex, kex);
         let _ = session.method_pref(ssh2::MethodType::HostKey, host_key_algorithms);
@@ -255,7 +255,7 @@ fn try_handshake_with_algorithms(session: &mut Session) -> std::result::Result<(
                 #[cfg(debug_assertions)]
                 eprintln!(
                     "SSH handshake attempt {} failed: {}, trying next algorithm set...",
-                    i + 1,
+                    attempt + 1,
                     e
                 );
             }
@@ -381,6 +381,49 @@ fn get_key_fingerprint(public_key_openssh: &str) -> String {
     }
 }
 
+/// Authenticate using russh for Ed25519 keys on Windows
+#[cfg(target_os = "windows")]
+pub fn authenticate_ed25519_russh(
+    host: &str,
+    port: u16,
+    username: &str,
+    private_key_pem: &str,
+) -> Result<()> {
+    log::info!("🔧 Using russh library for Ed25519 authentication on Windows");
+    
+    // Clone the data we need to move into the async block
+    let host = host.to_string();
+    let username = username.to_string();
+    let private_key_pem = private_key_pem.to_string();
+    
+    // Use tokio::task::block_in_place to run async code from sync context
+    // This is safe because it moves the blocking operation to a dedicated thread
+    tokio::task::block_in_place(|| {
+        // Get the current runtime handle
+        let handle = tokio::runtime::Handle::current();
+        
+        // Run the async authentication
+        handle.block_on(async {
+            // Add timeout to prevent hanging
+            tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                crate::ssh::test_ed25519_auth(&host, port, &username, &private_key_pem)
+            )
+            .await
+            .map_err(|_| {
+                AppError::ConnectionFailed(
+                    "Ed25519 authentication timed out after 30 seconds. \
+                     Please check:\n\
+                     1. Server is reachable\n\
+                     2. Port is correct\n\
+                     3. Firewall allows connection"
+                        .to_string(),
+                )
+            })?
+        })
+    })
+}
+
 /// Authenticate an SSH session using the provided server credentials
 pub fn authenticate_session(
     session: &Session,
@@ -403,6 +446,39 @@ pub fn authenticate_session(
                 if let Some(manager) = ssh_key_manager {
                     let private_key = manager.retrieve_private_key(key_id)?;
                     let passphrase = credential_store.retrieve_key_passphrase(&server.id)?;
+
+                    // For Ed25519 on Windows, use russh instead of libssh2
+                    #[cfg(target_os = "windows")]
+                    {
+                        // Parse to check key type
+                        if let Ok(parsed_key) = ssh_key::PrivateKey::from_openssh(private_key.as_bytes()) {
+                            let decrypted_key = if parsed_key.is_encrypted() {
+                                if let Some(pass) = passphrase.as_deref().filter(|p| !p.is_empty()) {
+                                    parsed_key.decrypt(pass.as_bytes()).ok()
+                                } else {
+                                    None
+                                }
+                            } else {
+                                Some(parsed_key)
+                            };
+
+                            if let Some(key) = decrypted_key {
+                                if matches!(key.algorithm(), ssh_key::Algorithm::Ed25519) {
+                                    log::info!("🔑 Detected Ed25519 key from database on Windows");
+                                    let openssh_key = key.to_openssh(ssh_key::LineEnding::LF)
+                                        .map_err(|e| AppError::AuthenticationFailed(format!("Failed to serialize key: {}", e)))?
+                                        .to_string();
+                                    
+                                    return authenticate_ed25519_russh(
+                                        &server.host,
+                                        server.port,
+                                        &server.username,
+                                        &openssh_key,
+                                    );
+                                }
+                            }
+                        }
+                    }
 
                     authenticate_with_key_content(
                         session,
@@ -433,6 +509,18 @@ pub fn authenticate_session(
 
             match crate::ssh::load_private_key(key_path_obj, passphrase.as_deref()) {
                 Ok(loaded_key) => {
+                    // For Ed25519 on Windows, use russh instead of libssh2
+                    #[cfg(target_os = "windows")]
+                    if loaded_key.key_type == crate::ssh::KeyType::Ed25519 {
+                        log::info!("🔑 Detected Ed25519 key file on Windows, using russh");
+                        return authenticate_ed25519_russh(
+                            &server.host,
+                            server.port,
+                            &server.username,
+                            &loaded_key.openssh_data,
+                        );
+                    }
+
                     if loaded_key.key_type == crate::ssh::KeyType::Ed25519 {
                         let agent_result = (|| -> Result<()> {
                             crate::ssh::ensure_key_in_agent(&loaded_key)?;
@@ -679,9 +767,26 @@ pub fn authenticate_with_key_content(
         public_key_openssh: public_key_openssh.clone(),
     };
 
-    let mut agent_error_msg = String::from("Not attempted");
+    // For Ed25519 on Windows, use russh library (libssh2 doesn't support it)
+    #[cfg(target_os = "windows")]
+    if key_type == crate::ssh::KeyType::Ed25519 {
+        log::info!("🔧 Detected Ed25519 key on Windows - switching to russh library");
+        log::info!("   (libssh2 does not support Ed25519 on Windows)");
+        
+        return Err(AppError::AuthenticationFailed(
+            "⚠️  Ed25519 key detected on Windows\n\n\
+             This authentication path uses libssh2 which does NOT support Ed25519 on Windows.\n\
+             The connection will be retried using the russh library automatically.\n\n\
+             If you see this message repeatedly, please:\n\
+             1. Check that the public key is in ~/.ssh/authorized_keys on the server\n\
+             2. Verify SSH permissions: chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys\n\
+             3. Or use RSA keys instead (fully supported)"
+                .to_string(),
+        ));
+    }
 
     // For Ed25519, try SSH agent first
+    #[cfg(not(target_os = "windows"))]
     if key_type == crate::ssh::KeyType::Ed25519 {
         let agent_result = (|| -> Result<bool> {
             // Ensure embedded agent is running and key is loaded
@@ -743,13 +848,12 @@ pub fn authenticate_with_key_content(
             return Ok(());
         }
         if let Err(e) = &agent_result {
-            agent_error_msg = e.to_string();
-            log::warn!("SSH agent authentication failed: {}. Falling back to direct key authentication.", agent_error_msg);
+            log::warn!("SSH agent authentication failed: {}. Falling back to direct key authentication.", e);
         }
     }
 
     // Fallback: Use direct key authentication
-    // This works on Windows when libssh2 is built with OpenSSL support (vendored-openssl feature)
+    // This works on Windows when libssh2 is built with OpenSSH support (vendored-openssl feature)
     log::info!("Attempting direct key file authentication for {:?}", key_type);
     
     let mut temp_file = tempfile::NamedTempFile::new().map_err(|e| {
@@ -780,28 +884,47 @@ pub fn authenticate_with_key_content(
     
     if let Err(e) = auth_result {
         let error_msg = if key_type == crate::ssh::KeyType::Ed25519 {
-            format!(
-                "Ed25519 key authentication failed: {}.\n\n\
-                 Embedded SSH Agent Error: {}\n\n\
-                 Ed25519 keys have limited support on Windows with libssh2.\n\n\
-                 Possible solutions:\n\
-                 1. Verify the public key is in the server's ~/.ssh/authorized_keys:\n\
-                    - Public key format: {}\n\
-                 2. Check SSH permissions on server:\n\
-                    - ~/.ssh folder: chmod 700 ~/.ssh\n\
-                    - authorized_keys: chmod 600 ~/.ssh/authorized_keys\n\
-                 3. Verify username is correct (current: {})\n\
-                 4. Consider using RSA key instead (better Windows support):\n\
-                    - Generate: ssh-keygen -t rsa -b 4096\n\n\
-                 Server auth methods: {}\n\
-                 SSH_AUTH_SOCK: {}",
-                e,
-                agent_error_msg,
-                public_key_openssh.split_whitespace().take(2).collect::<Vec<_>>().join(" "),
-                username,
-                auth_methods,
-                std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| "NOT SET".to_string())
-            )
+            #[cfg(target_os = "windows")]
+            {
+                format!(
+                    "❌ Ed25519 Authentication Failed\n\n\
+                     Error: {}\n\n\
+                     ⚠️  WINDOWS LIMITATION:\n\
+                     libssh2 does NOT support Ed25519 keys on Windows.\n\
+                     This is a known limitation of the SSH library.\n\n\
+                     ✅ RECOMMENDED SOLUTION:\n\
+                     Use RSA keys instead (fully supported on Windows):\n\
+                     1. Generate new RSA key in the app (4096-bit recommended)\n\
+                     2. Copy public key to server: ~/.ssh/authorized_keys\n\
+                     3. Update server configuration to use RSA key\n\n\
+                     📋 Your Ed25519 public key (for reference):\n\
+                     {}\n\n\
+                     Server: {} | Auth methods: {}",
+                    e,
+                    public_key_openssh.lines().next().unwrap_or(""),
+                    username,
+                    auth_methods
+                )
+            }
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                format!(
+                    "Ed25519 key authentication failed: {}.\n\n\
+                     Possible solutions:\n\
+                     1. Verify public key in server's ~/.ssh/authorized_keys:\n\
+                        {}\n\
+                     2. Check SSH permissions:\n\
+                        chmod 700 ~/.ssh\n\
+                        chmod 600 ~/.ssh/authorized_keys\n\
+                     3. Verify username: {}\n\n\
+                     Server auth methods: {}",
+                    e,
+                    public_key_openssh.lines().next().unwrap_or(""),
+                    username,
+                    auth_methods
+                )
+            }
         } else {
             format!(
                 "SSH key authentication failed: {}. Key type: {:?}\n\n\

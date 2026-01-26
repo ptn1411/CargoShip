@@ -3,8 +3,10 @@ mod client;
 mod embedded_agent;
 mod key_utils;
 mod keys;
+mod manual_auth;
 mod models;
 mod pool;
+mod russh_client;
 
 pub use agent_setup::{
     add_key_to_agent, auto_start_agent, check_agent_status, configure_auto_start, is_key_in_agent,
@@ -22,3 +24,4 @@ pub use keys::{CreateSshKeyInput, GeneratedKey, SshKey, SshKeyManager, SshKeyTyp
 pub use models::*;
 pub use pool::*;
 pub use pool::{authenticate_with_key_content, create_ssh_session_with_retry};
+pub use russh_client::{execute_command as russh_execute_command, test_ed25519_auth};
