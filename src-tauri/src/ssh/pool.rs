@@ -359,20 +359,23 @@ use crate::ssh::SshKeyManager;
 
 /// Get SSH key fingerprint for debugging
 fn get_key_fingerprint(public_key_openssh: &str) -> String {
-    use sha2::{Sha256, Digest};
-    
+    use sha2::{Digest, Sha256};
+
     // Parse the public key to get the key data
     if let Ok(public_key) = ssh_key::PublicKey::from_openssh(public_key_openssh) {
         // Get the key data bytes
         let key_data = public_key.to_bytes().unwrap_or_default();
-        
+
         // Calculate SHA256 fingerprint
         let mut hasher = Sha256::new();
         hasher.update(&key_data);
         let hash = hasher.finalize();
-        
+
         // Format as SHA256:base64
-        format!("SHA256:{}", base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash))
+        format!(
+            "SHA256:{}",
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash)
+        )
     } else {
         "Unable to calculate fingerprint".to_string()
     }
@@ -436,40 +439,55 @@ pub fn authenticate_session(
                         {
                             let agent_result = (|| -> Result<()> {
                                 // Try to ensure key is in agent
-                                let _ = crate::ssh::ensure_key_in_agent(key_path_obj, passphrase.as_deref());
-                                
+                                let _ = crate::ssh::ensure_key_in_agent(
+                                    key_path_obj,
+                                    passphrase.as_deref(),
+                                );
+
                                 // Try agent authentication
                                 let mut agent = session.agent().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
+                                    AppError::AuthenticationFailed(format!(
+                                        "Failed to connect to SSH agent: {}",
+                                        e
+                                    ))
                                 })?;
-                                
+
                                 agent.connect().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
+                                    AppError::AuthenticationFailed(format!(
+                                        "Failed to connect to SSH agent: {}",
+                                        e
+                                    ))
                                 })?;
-                                
+
                                 agent.list_identities().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!("Failed to list agent identities: {}", e))
+                                    AppError::AuthenticationFailed(format!(
+                                        "Failed to list agent identities: {}",
+                                        e
+                                    ))
                                 })?;
-                                
+
                                 let identities = agent.identities().map_err(|e| {
-                                    AppError::AuthenticationFailed(format!("Failed to get agent identities: {}", e))
+                                    AppError::AuthenticationFailed(format!(
+                                        "Failed to get agent identities: {}",
+                                        e
+                                    ))
                                 })?;
-                                
+
                                 for identity in identities {
                                     if agent.userauth(&server.username, &identity).is_ok() {
                                         return Ok(());
                                     }
                                 }
-                                
+
                                 Err(AppError::AuthenticationFailed(
-                                    "No matching identity found in SSH agent".to_string()
+                                    "No matching identity found in SSH agent".to_string(),
                                 ))
                             })();
 
                             if agent_result.is_ok() {
                                 return Ok(());
                             }
-                            
+
                             // If agent fails, return helpful error
                             return Err(AppError::AuthenticationFailed(format!(
                                 "Ed25519 key authentication failed.\n\n\
@@ -489,7 +507,10 @@ pub fn authenticate_session(
                         {
                             // On Unix, try agent first but fall through to file auth
                             let agent_auth_success = (|| -> Result<bool> {
-                                crate::ssh::ensure_key_in_agent(key_path_obj, passphrase.as_deref())?;
+                                crate::ssh::ensure_key_in_agent(
+                                    key_path_obj,
+                                    passphrase.as_deref(),
+                                )?;
                                 if let Ok(mut agent) = session.agent() {
                                     if agent.connect().is_ok() && agent.list_identities().is_ok() {
                                         for identity in agent.identities().unwrap_or_default() {
@@ -518,7 +539,7 @@ pub fn authenticate_session(
 
                     // First, check what authentication methods are available
                     let auth_methods = session.auth_methods(&server.username).unwrap_or_default();
-                    
+
                     if !auth_methods.contains("publickey") {
                         return Err(AppError::AuthenticationFailed(format!(
                             "Server does not support public key authentication. Available methods: {}",
@@ -545,7 +566,7 @@ pub fn authenticate_session(
                                 - Public key fingerprint: {}\n\n\
                                 To verify, run on server:\n\
                                 ssh-keygen -lf ~/.ssh/authorized_keys",
-                                e, 
+                                e,
                                 loaded_key.key_type,
                                 server.username,
                                 key_path,
@@ -653,33 +674,33 @@ pub fn authenticate_with_key_content(
             let mut agent = session.agent().map_err(|e| {
                 AppError::AuthenticationFailed(format!("Failed to initialize SSH agent: {}", e))
             })?;
-            
+
             agent.connect().map_err(|e| {
                 AppError::AuthenticationFailed(format!("Failed to connect to SSH agent: {}", e))
             })?;
-            
+
             agent.list_identities().map_err(|e| {
                 AppError::AuthenticationFailed(format!("Failed to list agent identities: {}", e))
             })?;
-            
+
             let identities = agent.identities().map_err(|e| {
                 AppError::AuthenticationFailed(format!("Failed to get agent identities: {}", e))
             })?;
-            
+
             if identities.is_empty() {
                 return Err(AppError::AuthenticationFailed(
-                    "No identities found in SSH agent after adding key".to_string()
+                    "No identities found in SSH agent after adding key".to_string(),
                 ));
             }
-            
+
             for identity in identities {
                 if agent.userauth(username, &identity).is_ok() {
                     return Ok(true);
                 }
             }
-            
+
             Err(AppError::AuthenticationFailed(
-                "Agent has identities but none matched for authentication".to_string()
+                "Agent has identities but none matched for authentication".to_string(),
             ))
         })();
 
@@ -707,7 +728,7 @@ pub fn authenticate_with_key_content(
 
     // Check available auth methods
     let auth_methods = session.auth_methods(username).unwrap_or_default();
-    
+
     if !auth_methods.contains("publickey") {
         return Err(AppError::AuthenticationFailed(format!(
             "Server does not support public key authentication. Available methods: {}",

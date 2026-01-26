@@ -43,9 +43,9 @@ impl FileManager {
     }
 
     pub fn with_key_manager(
-        credential_store: Arc<CredentialStore>, 
+        credential_store: Arc<CredentialStore>,
         cache_manager: Arc<CacheManager>,
-        ssh_key_manager: Arc<SshKeyManager>
+        ssh_key_manager: Arc<SshKeyManager>,
     ) -> Self {
         Self {
             credential_store,
@@ -249,7 +249,12 @@ impl FileManager {
 
         // Create SSH session
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         // Get file stats using stat command (works with sudo)
         let stat_output = self.exec_command_with_sudo_password(
@@ -333,7 +338,12 @@ impl FileManager {
         let normalized_path = normalize_path(remote_path);
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
@@ -397,7 +407,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         if server.use_sudo {
             // Use sudo for file operations
@@ -547,7 +562,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         if server.use_sudo {
             // Check if file already exists
@@ -613,7 +633,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         if server.use_sudo {
             // Check if directory already exists
@@ -676,7 +701,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         if server.use_sudo {
             // Check if path exists and get type
@@ -751,7 +781,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         if server.use_sudo {
             // Check if source exists
@@ -813,7 +848,6 @@ impl FileManager {
                 AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e))
             })?;
 
-
             // Check if source exists
             sftp.stat(Path::new(&normalized_old))
                 .map_err(|e| AppError::FileOperationFailed(format!("Source not found: {}", e)))?;
@@ -851,7 +885,12 @@ impl FileManager {
         let normalized_dir = normalize_path(remote_dir);
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
@@ -967,7 +1006,12 @@ impl FileManager {
         let normalized_path = normalize_path(remote_path);
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
@@ -1002,7 +1046,12 @@ impl FileManager {
         let sudo_pwd_ref = sudo_password.as_deref();
 
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, server, &self.credential_store, self.ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            server,
+            &self.credential_store,
+            self.ssh_key_manager.as_deref(),
+        )?;
 
         let command = format!("chmod {} '{}'", mode, normalized_path.replace("'", "'\\''"));
         self.exec_command_with_sudo_password(&session, &command, server.use_sudo, sudo_pwd_ref)?;

@@ -520,7 +520,12 @@ impl TransferManager {
 
         tokio::task::spawn_blocking(move || {
             let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-            authenticate_session(&session, &server, &credential_store, ssh_key_manager.as_deref())?;
+            authenticate_session(
+                &session,
+                &server,
+                &credential_store,
+                ssh_key_manager.as_deref(),
+            )?;
 
             let sftp = session.sftp().map_err(|e| {
                 AppError::FileOperationFailed(format!("Failed to open SFTP: {}", e))
@@ -616,7 +621,12 @@ async fn execute_upload(
 
         // Create SSH session
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, &server, &credential_store, ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            &server,
+            &credential_store,
+            ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()
@@ -735,7 +745,12 @@ async fn execute_download(
     tokio::task::spawn_blocking(move || {
         // Create SSH session
         let (session, _tcp) = create_ssh_session(&server.host, server.port)?;
-        authenticate_session(&session, &server, &credential_store, ssh_key_manager.as_deref())?;
+        authenticate_session(
+            &session,
+            &server,
+            &credential_store,
+            ssh_key_manager.as_deref(),
+        )?;
 
         let sftp = session
             .sftp()

@@ -134,6 +134,7 @@ pub fn load_private_key(path: &Path, passphrase: Option<&str>) -> Result<LoadedK
 
     // For RSA keys on Windows, we need PKCS#1 PEM format for WinCNG backend
     // ssh-key crate only exports OpenSSH format, so we use rsa/pkcs1 crates for conversion
+    #[allow(unused_mut)]
     let mut final_data = openssh_data.to_string();
 
     #[cfg(target_os = "windows")]

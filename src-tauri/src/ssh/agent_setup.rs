@@ -11,9 +11,7 @@ pub fn check_agent_status() -> AgentStatus {
     #[cfg(target_os = "windows")]
     {
         // Check if service exists
-        let service_check = Command::new("sc")
-            .args(["query", "ssh-agent"])
-            .output();
+        let service_check = Command::new("sc").args(["query", "ssh-agent"]).output();
 
         if service_check.is_err() {
             return AgentStatus::NotInstalled;
@@ -48,9 +46,7 @@ pub fn check_agent_status() -> AgentStatus {
 
 /// Try to connect to SSH agent
 fn can_connect_to_agent() -> bool {
-    let result = std::process::Command::new("ssh-add")
-        .arg("-l")
-        .output();
+    let result = std::process::Command::new("ssh-add").arg("-l").output();
 
     if let Ok(output) = result {
         // Exit code 0 or 1 means agent is accessible (1 = no identities)
@@ -71,8 +67,9 @@ pub fn auto_start_agent() -> Result<()> {
         .output();
 
     if let Ok(output) = start_result {
-        if output.status.success() || 
-           String::from_utf8_lossy(&output.stdout).contains("already been started") {
+        if output.status.success()
+            || String::from_utf8_lossy(&output.stdout).contains("already been started")
+        {
             // Wait a moment for service to be ready
             std::thread::sleep(std::time::Duration::from_millis(500));
             return Ok(());
@@ -93,7 +90,7 @@ pub fn auto_start_agent() -> Result<()> {
     }
 
     Err(AppError::AuthenticationFailed(
-        "Failed to start SSH Agent service automatically. Manual setup required.".to_string()
+        "Failed to start SSH Agent service automatically. Manual setup required.".to_string(),
     ))
 }
 
@@ -118,7 +115,8 @@ pub fn configure_auto_start() -> Result<()> {
     }
 
     Err(AppError::AuthenticationFailed(
-        "Failed to configure SSH Agent auto-start. Administrator privileges may be required.".to_string()
+        "Failed to configure SSH Agent auto-start. Administrator privileges may be required."
+            .to_string(),
     ))
 }
 
@@ -134,14 +132,13 @@ pub fn add_key_to_agent(key_path: &Path, passphrase: Option<&str>) -> Result<()>
     if passphrase.is_some() {
         return Err(AppError::AuthenticationFailed(
             "Cannot add passphrase-protected key to agent automatically. \
-            Please run: ssh-add <key_path>".to_string()
+            Please run: ssh-add <key_path>"
+                .to_string(),
         ));
     }
 
     // For keys without passphrase, we can add them
-    let result = std::process::Command::new("ssh-add")
-        .arg(key_path)
-        .output();
+    let result = std::process::Command::new("ssh-add").arg(key_path).output();
 
     match result {
         Ok(output) if output.status.success() => Ok(()),
@@ -161,9 +158,7 @@ pub fn add_key_to_agent(key_path: &Path, passphrase: Option<&str>) -> Result<()>
 
 /// Check if a specific key is already in the agent
 pub fn is_key_in_agent(public_key_fingerprint: &str) -> bool {
-    let result = std::process::Command::new("ssh-add")
-        .arg("-l")
-        .output();
+    let result = std::process::Command::new("ssh-add").arg("-l").output();
 
     if let Ok(output) = result {
         let stdout = String::from_utf8_lossy(&output.stdout);

@@ -4320,12 +4320,12 @@ pub fn run() {
                     ssh_key_manager.clone(),
                 ));
                 let file_browser = Arc::new(FileBrowser::with_key_manager(
-                    credential_store.clone(), 
-                    ssh_key_manager.clone()
+                    credential_store.clone(),
+                    ssh_key_manager.clone(),
                 ));
                 let terminal_manager = Arc::new(TerminalManager::with_key_manager(
-                    credential_store.clone(), 
-                    ssh_key_manager.clone()
+                    credential_store.clone(),
+                    ssh_key_manager.clone(),
                 ));
 
                 // Initialize cache manager
@@ -4416,8 +4416,6 @@ pub fn run() {
 
                 // Initialize settings manager
                 let settings_manager = Arc::new(SettingsManager::new(db_pool.clone()));
-
-
 
                 // Initialize Nginx manager
                 let nginx_manager = Arc::new(NginxManager::new(

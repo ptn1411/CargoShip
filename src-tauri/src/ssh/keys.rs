@@ -1,8 +1,8 @@
+use crate::error::{AppError, Result};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
-use crate::error::{AppError, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -109,7 +109,9 @@ impl SshKeyManager {
             .map_err(|e| AppError::SshError(format!("Base64 decode failed: {}", e)))?;
 
         if encrypted_bytes.len() < 12 {
-            return Err(AppError::SshError("Invalid encrypted data length".to_string()));
+            return Err(AppError::SshError(
+                "Invalid encrypted data length".to_string(),
+            ));
         }
 
         let key = Key::<Aes256Gcm>::from_slice(key_bytes);
